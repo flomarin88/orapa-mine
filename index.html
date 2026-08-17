@@ -215,6 +215,20 @@
       border: 1px solid rgba(255, 255, 255, .35)
     }
 
+    .score {
+      display: flex;
+      align-items: baseline;
+      gap: 9px;
+      margin-bottom: 10px
+    }
+
+    .score b {
+      font-size: 30px;
+      line-height: 1;
+      color: var(--gold);
+      font-variant-numeric: tabular-nums
+    }
+
     .legend {
       display: flex;
       flex-wrap: wrap;
@@ -761,6 +775,10 @@
             <div className="side">
               <div className="panel">
                 <h3>Partie</h3>
+                <div className="score">
+                  <b>{asked.length}</b>
+                  <span className="muted">question{asked.length > 1 ? 's' : ''} posée{asked.length > 1 ? 's' : ''} — moins il y en a, meilleur est le score</span>
+                </div>
                 <div className="row">
                   <button onClick={newGame}>🎲 Nouvelle partie</button>
                   <button onClick={verify}>✔ Vérifier</button>
@@ -770,7 +788,7 @@
               </div>
 
               <div className="panel">
-                <h3>Questions posées ({asked.length})</h3>
+                <h3>Questions posées</h3>
                 {asked.length === 0
                   ? <p className="muted" style={{ margin: 0 }}>Clique un rond sur le bord du plateau pour poser ta première question.</p>
                   : <ProbeTable rows={asked.map(q => [q.entree, q.sortie, q.couleur])} />}
