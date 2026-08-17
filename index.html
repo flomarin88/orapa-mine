@@ -1,0 +1,609 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Orapa Mine — Éditeur de disposition</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.6/babel.min.js"></script>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card: #16233b;
+      --board: #1e2f4d;
+      --grid: #33507e;
+      --gold: #e9c46a;
+      --ink: #e8eef7;
+      --muted: #9fb2cf;
+      --line: #26385c;
+    }
+
+    * {
+      box-sizing: border-box
+    }
+
+    body {
+      margin: 0;
+      background: linear-gradient(160deg, #0b1220, #131f38);
+      color: var(--ink);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+
+    #root {
+      max-width: 1080px;
+      margin: 0 auto;
+      padding: 20px 14px 60px;
+    }
+
+    h1 {
+      font-size: 20px;
+      text-align: center;
+      margin: 4px 0 2px
+    }
+
+    h1 .g {
+      color: var(--gold)
+    }
+
+    .sub {
+      text-align: center;
+      color: var(--muted);
+      font-size: 12.5px;
+      margin: 0 0 16px;
+      line-height: 1.5
+    }
+
+    .layout {
+      display: flex;
+      gap: 18px;
+      flex-wrap: wrap;
+      align-items: flex-start
+    }
+
+    .boardwrap {
+      flex: 1 1 460px;
+      min-width: 320px;
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 12px
+    }
+
+    .side {
+      flex: 1 1 300px;
+      min-width: 260px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px
+    }
+
+    .panel {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 12px 14px
+    }
+
+    .panel h3 {
+      margin: 0 0 9px;
+      font-size: 13px;
+      color: var(--gold);
+      letter-spacing: .3px
+    }
+
+    svg {
+      display: block;
+      width: 100%;
+      height: auto;
+      touch-action: none
+    }
+
+    button {
+      font: inherit;
+      cursor: pointer;
+      border-radius: 9px;
+      border: 1px solid var(--line);
+      background: #1d2c48;
+      color: var(--ink);
+      padding: 7px 10px;
+      font-size: 12.5px
+    }
+
+    button:hover:not(:disabled) {
+      border-color: #4a6699;
+      background: #243657
+    }
+
+    button:disabled {
+      opacity: .4;
+      cursor: not-allowed
+    }
+
+    .pbtn {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      width: 100%;
+      justify-content: flex-start;
+      margin-bottom: 6px
+    }
+
+    .sw {
+      width: 16px;
+      height: 16px;
+      border-radius: 4px;
+      border: 1px solid rgba(255, 255, 255, .3);
+      flex: 0 0 auto
+    }
+
+    .row {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap
+    }
+
+    .status {
+      font-size: 12.5px;
+      padding: 8px 10px;
+      border-radius: 9px;
+      line-height: 1.4
+    }
+
+    .ok {
+      background: rgba(22, 163, 74, .15);
+      border: 1px solid #16a34a;
+      color: #86efac
+    }
+
+    .bad {
+      background: rgba(220, 38, 38, .15);
+      border: 1px solid #dc2626;
+      color: #fca5a5
+    }
+
+    .muted {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.5
+    }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12.5px
+    }
+
+    .result {
+      font-size: 14px;
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      flex-wrap: wrap
+    }
+
+    .bigsw {
+      width: 22px;
+      height: 22px;
+      border-radius: 6px;
+      border: 1px solid rgba(255, 255, 255, .35)
+    }
+
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px 10px
+    }
+
+    kbd {
+      background: #0d1730;
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      padding: 0 5px;
+      font-size: 11px
+    }
+
+    table {
+      border-collapse: collapse;
+      font-size: 11px;
+      width: 100%
+    }
+
+    td {
+      border: 1px solid var(--line);
+      padding: 2px 5px;
+      text-align: center
+    }
+
+    .tabwrap {
+      max-height: 220px;
+      overflow: auto
+    }
+  </style>
+</head>
+
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState, useRef, useEffect, useCallback } = React;
+
+    // ---------- Simulator (port of validated Python) ----------
+    const CANON = {
+      jaune: [[0, 0], [2, 0], [0, 2]],
+      bleu: [[0, 2], [4, 2], [2, 0]],
+      grandblanc: [[0, 2], [4, 2], [2, 0]],
+      rouge: [[1, 0], [3, 0], [2, 1], [0, 1]],
+      petitblanc: [[1, 0], [2, 1], [1, 2], [0, 1]],
+    };
+    const MAT = { rouge: 'red', jaune: 'yellow', bleu: 'blue', grandblanc: 'white', petitblanc: 'white' };
+    const META = {
+      rouge: { label: 'Rouge', fill: '#dc2626', stroke: 'rgba(255,255,255,.55)' },
+      jaune: { label: 'Jaune', fill: '#eab308', stroke: 'rgba(255,255,255,.55)' },
+      bleu: { label: 'Bleu', fill: '#2563eb', stroke: 'rgba(255,255,255,.55)' },
+      grandblanc: { label: 'Grand blanc', fill: '#eef2f9', stroke: '#334155' },
+      petitblanc: { label: 'Petit blanc', fill: '#eef2f9', stroke: '#334155' },
+    };
+    const ORDER = ['rouge', 'jaune', 'bleu', 'grandblanc', 'petitblanc'];
+    function transform(poly, rot, flip) {
+      let pts = poly.map(([x, y]) => [x, y]);
+      if (flip) pts = pts.map(([x, y]) => [-x, y]);
+      for (let k = 0; k < ((rot % 4) + 4) % 4; k++)pts = pts.map(([x, y]) => [-y, x]);
+      const minx = Math.min(...pts.map(p => p[0])), miny = Math.min(...pts.map(p => p[1]));
+      return pts.map(([x, y]) => [x - minx, y - miny]);
+    }
+    function placedPoly(pc) { const t = transform(CANON[pc.name], pc.rot, pc.flip); return t.map(([x, y]) => [x + pc.anchor[0], y + pc.anchor[1]]); }
+    function pointInPoly(px, py, poly) {
+      let inside = false, n = poly.length, j = n - 1;
+      for (let i = 0; i < n; i++) {
+        const [xi, yi] = poly[i], [xj, yj] = poly[j];
+        if ((yi > py) !== (yj > py)) { const xint = (xj - xi) * (py - yi) / (yj - yi) + xi; if (px < xint) inside = !inside; } j = i;
+      } return inside;
+    }
+    function rasterize(poly) {
+      const faces = {}; const n = poly.length;
+      for (let i = 0; i < n; i++) {
+        const [x1, y1] = poly[i], [x2, y2] = poly[(i + 1) % n];
+        const dx = x2 - x1, dy = y2 - y1;
+        if (dx !== 0 && dy !== 0) {
+          const sx = Math.sign(dx), sy = Math.sign(dy), steps = Math.abs(dx);
+          for (let s = 0; s < steps; s++) {
+            const ax = x1 + s * sx, ay = y1 + s * sy, bx = ax + sx, by = ay + sy;
+            const cx = Math.min(ax, bx), cy = Math.min(ay, by);
+            const isTLBR = (ax === cx && ay === cy && bx === cx + 1 && by === cy + 1) || (ax === cx + 1 && ay === cy + 1 && bx === cx && by === cy);
+            faces[cx + ',' + cy] = isTLBR ? '\\' : '/';
+          }
+        }
+      }
+      const xs = poly.map(p => p[0]), ys = poly.map(p => p[1]);
+      const solids = [];
+      for (let cx = Math.min(...xs); cx < Math.max(...xs); cx++)for (let cy = Math.min(...ys); cy < Math.max(...ys); cy++) {
+        if (faces[cx + ',' + cy]) continue; if (pointInPoly(cx + 0.5, cy + 0.5, poly)) solids.push(cx + ',' + cy);
+      }
+      return { faces, solids };
+    }
+    function buildBoard(pieces) {
+      const faces = {}, solid = new Map(), mat = [], polys = [], cellsOf = [];
+      pieces.forEach((pc, idx) => {
+        const poly = placedPoly(pc); polys.push(poly); mat.push(MAT[pc.name]);
+        const { faces: f, solids: s } = rasterize(poly); const cells = new Set();
+        for (const k in f) { faces[k] = [f[k], idx]; cells.add(k); }
+        s.forEach(k => { solid.set(k, idx); cells.add(k); }); cellsOf.push(cells);
+      });
+      return { faces, solid, mat, polys, cellsOf };
+    }
+    function legalCheck(pieces) {
+      const polys = pieces.map(placedPoly);
+      for (const poly of polys) for (const [x, y] of poly) if (x < 0 || x > 10 || y < 0 || y > 8) return { ok: false, msg: 'Une pièce sort du plateau.' };
+      const owner = {};
+      const board = buildBoard(pieces);
+      board.cellsOf.forEach((cells, idx) => { for (const c of cells) { if (owner[c] !== undefined && owner[c] !== idx) return; owner[c] = idx; } });
+      // overlap
+      const seen = {};
+      for (let idx = 0; idx < board.cellsOf.length; idx++)for (const c of board.cellsOf[idx]) { if (seen[c] !== undefined) return { ok: false, msg: 'Deux pièces se chevauchent.' }; seen[c] = idx; }
+      // edge adjacency
+      for (const c in seen) {
+        const [cx, cy] = c.split(',').map(Number);
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const nk = (cx + dx) + ',' + (cy + dy); if (seen[nk] !== undefined && seen[nk] !== seen[c]) return { ok: false, msg: 'Deux pièces se touchent par une arête (interdit — seuls les coins peuvent se toucher).' }; }
+      }
+      return { ok: true, msg: 'Placement valide.' };
+    }
+    const REFL = { '\\': { R: 'D', D: 'R', L: 'U', U: 'L' }, '/': { R: 'U', U: 'R', L: 'D', D: 'L' } };
+    const REV = { R: 'L', L: 'R', U: 'D', D: 'U' };
+    const DIRV = { R: [1, 0], L: [-1, 0], U: [0, -1], D: [0, 1] };
+    const MIX = { 'red': 'rouge', 'yellow': 'jaune', 'blue': 'bleu', 'white': 'blanc', 'red+yellow': 'orange', 'blue+red': 'violet', 'blue+yellow': 'vert', 'blue+red+yellow': 'noir', 'red+white': 'rose', 'white+yellow': 'citron', 'blue+white': 'bleu ciel', 'blue+red+white+yellow': 'gris', 'blue+white+yellow': 'vert clair', 'blue+red+white': 'violet clair', 'red+white+yellow': 'orange clair' };
+    function mixname(cs) { if (cs.length === 0) return 'transparent'; const key = [...new Set(cs)].sort().join('+'); return MIX[key] || cs.join('+'); }
+    function fire2(board, side, line, maxsteps = 300) {
+      let cx, cy, d;
+      if (side === 'L') { cx = 0; cy = line - 1; d = 'R'; } else if (side === 'R') { cx = 9; cy = line - 1; d = 'L'; }
+      else if (side === 'T') { cx = line - 1; cy = 0; d = 'D'; } else { cx = line - 1; cy = 7; d = 'U'; }
+      const entry = { L: [0, cy + 0.5], R: [10, cy + 0.5], T: [cx + 0.5, 0], B: [cx + 0.5, 8] }[side];
+      let path = [entry], colors = [], seg = [];
+      for (let step = 0; step < maxsteps; step++) {
+        const key = cx + ',' + cy;
+        if (board.faces[key]) {
+          seg.push(mixname(colors)); const [orient, idx] = board.faces[key]; const c = board.mat[idx];
+          if (!colors.includes(c)) colors.push(c); d = REFL[orient][d]; path.push([cx + 0.5, cy + 0.5]);
+        }
+        else if (board.solid.has(key)) {
+          // base plate : demi-tour à 180°, le rayon prend la couleur de la pièce
+          seg.push(mixname(colors)); const c = board.mat[board.solid.get(key)];
+          if (!colors.includes(c)) colors.push(c); d = REV[d]; path.push([cx + 0.5, cy + 0.5]);
+        }
+        const [dx, dy] = DIRV[d]; const ncx = cx + dx, ncy = cy + dy;
+        if (!(ncx >= 0 && ncx <= 9 && ncy >= 0 && ncy <= 7)) {
+          const exitpt = { R: [10, cy + 0.5], L: [0, cy + 0.5], D: [cx + 0.5, 8], U: [cx + 0.5, 0] }[d];
+          seg.push(mixname(colors)); path.push(exitpt);
+          const exs = { R: ['R', cy + 1], L: ['L', cy + 1], D: ['B', cx + 1], U: ['T', cx + 1] }[d];
+          return { ex: exs, col: mixname(colors), path, colors, seg };
+        }
+        cx = ncx; cy = ncy;
+      }
+      return { ex: ['LOOP', 0], col: mixname(colors), path, colors, seg };
+    }
+    window.__sim = { buildBoard, fire2, legalCheck, placedPoly };
+
+    // ---------- Rendering constants ----------
+    const CELL = 42, OX = 50, OY = 48, COLS = 10, ROWS = 8;
+    const W = OX * 2 + COLS * CELL, H = OY + ROWS * CELL + 52;
+    const PX = (x, y) => [OX + x * CELL, OY + y * CELL];
+    const LEFT = "ABCDEFGH", BOT = "IJKLMNOPQR";
+    const HEX = { 'transparent': '#9aa7bd', 'rouge': '#dc2626', 'jaune': '#eab308', 'bleu': '#2563eb', 'blanc': '#f1f5f9', 'orange': '#f97316', 'violet': '#7c3aed', 'vert': '#16a34a', 'noir': '#0b1220', 'gris': '#64748b', 'rose': '#f472b6', 'citron': '#fde047', 'bleu ciel': '#7dd3fc', 'vert clair': '#86efac', 'violet clair': '#c4b5fd', 'orange clair': '#fdba74' };
+    const FR = { red: 'rouge', yellow: 'jaune', blue: 'bleu', white: 'blanc' };
+    const entLabel = (side, line) => side === 'L' ? LEFT[line - 1] : side === 'R' ? String(10 + line) : side === 'T' ? String(line) : BOT[line - 1];
+    const exLabel = (ex) => { const [s, i] = ex; if (s === 'L') return LEFT[i - 1]; if (s === 'R') return String(10 + i); if (s === 'T') return 'haut ' + i; if (s === 'B') return 'bas ' + BOT[i - 1]; if (s === 'LOOP') return 'rayon piégé'; return '—'; };
+
+    const DEFAULT_ANCHOR = { rouge: [0, 0], jaune: [8, 0], bleu: [0, 5], grandblanc: [5, 5], petitblanc: [4, 3] };
+
+    // ---------- Debug JSON ----------
+    function probeJSON(board, side, line) {
+      const b = fire2(board, side, line);
+      return {
+        entree: entLabel(side, line), side, line,
+        sortie: exLabel(b.ex), ex: b.ex,
+        couleur: b.col,
+        touche: b.colors.map(c => FR[c] || c),
+        path: b.path.map(([x, y]) => [+x.toFixed(2), +y.toFixed(2)]),
+        seg: b.seg,
+      };
+    }
+    function allProbesJSON(board) {
+      const out = [];
+      for (let r = 1; r <= ROWS; r++) for (const s of ['L', 'R']) out.push(probeJSON(board, s, r));
+      for (let c = 1; c <= COLS; c++) for (const s of ['T', 'B']) out.push(probeJSON(board, s, c));
+      return out;
+    }
+    function snapshotJSON(pieces) {
+      const board = buildBoard(pieces);
+      const faces = {}, solid = {};
+      for (const k in board.faces) { const [orient, idx] = board.faces[k]; faces[k] = { orient, piece: pieces[idx].name }; }
+      for (const [k, idx] of board.solid) solid[k] = pieces[idx].name;
+      return {
+        cols: COLS, rows: ROWS,
+        pieces: pieces.map(p => ({ name: p.name, anchor: p.anchor, rot: p.rot, flip: p.flip, poly: placedPoly(p) })),
+        legal: legalCheck(pieces),
+        board: { faces, solid },
+        sondages: allProbesJSON(board),
+      };
+    }
+
+    function App() {
+      const [pieces, setPieces] = useState([]);
+      const [sel, setSel] = useState(null);
+      const [probe, setProbe] = useState(null);
+      const [showAll, setShowAll] = useState(false);
+      const [autoLog, setAutoLog] = useState(true);
+      const [copied, setCopied] = useState(false);
+      const svgRef = useRef(null);
+      const drag = useRef(null);
+
+      const board = buildBoard(pieces);
+      const legal = legalCheck(pieces);
+      const beam = probe ? fire2(board, probe.side, probe.line) : null;
+
+      const addPiece = (name) => {
+        if (pieces.some(p => p.name === name)) return;
+        setPieces([...pieces, { name, anchor: DEFAULT_ANCHOR[name].slice(), rot: 0, flip: false }]);
+        setSel(pieces.length); setProbe(null);
+      };
+      const update = (i, patch) => setPieces(ps => ps.map((p, k) => k === i ? { ...p, ...patch } : p));
+      const del = (i) => { setPieces(ps => ps.filter((_, k) => k !== i)); setSel(null); };
+      const rotate = (i) => update(i, { rot: (pieces[i].rot + 1) % 4 });
+      const flip = (i) => update(i, { flip: !pieces[i].flip });
+
+      // debug JSON
+      useEffect(() => {
+        window.__debug = () => snapshotJSON(pieces);
+        window.__debugJSON = () => JSON.stringify(snapshotJSON(pieces), null, 2);
+      }, [pieces]);
+      useEffect(() => {
+        if (!autoLog) return;
+        console.log('[orapa] plateau', snapshotJSON(pieces));
+      }, [pieces, autoLog]);
+      useEffect(() => {
+        if (!autoLog || !probe) return;
+        console.log('[orapa] sondage', probeJSON(board, probe.side, probe.line));
+      }, [probe, pieces, autoLog]);
+      const copyJSON = () => {
+        navigator.clipboard.writeText(JSON.stringify(snapshotJSON(pieces), null, 2))
+          .then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); })
+          .catch(err => console.error('[orapa] copie impossible', err));
+      };
+
+      // keyboard
+      useEffect(() => {
+        const h = (e) => {
+          if (sel == null) return; const p = pieces[sel]; if (!p) return;
+          if (e.key === 'r' || e.key === 'R') { rotate(sel); e.preventDefault(); }
+          else if (e.key === 'f' || e.key === 'F') { flip(sel); e.preventDefault(); }
+          else if (e.key === 'Delete' || e.key === 'Backspace') { del(sel); e.preventDefault(); }
+          else if (e.key === 'ArrowLeft') { update(sel, { anchor: [p.anchor[0] - 1, p.anchor[1]] }); e.preventDefault(); }
+          else if (e.key === 'ArrowRight') { update(sel, { anchor: [p.anchor[0] + 1, p.anchor[1]] }); e.preventDefault(); }
+          else if (e.key === 'ArrowUp') { update(sel, { anchor: [p.anchor[0], p.anchor[1] - 1] }); e.preventDefault(); }
+          else if (e.key === 'ArrowDown') { update(sel, { anchor: [p.anchor[0], p.anchor[1] + 1] }); e.preventDefault(); }
+        };
+        window.addEventListener('keydown', h); return () => window.removeEventListener('keydown', h);
+      }, [sel, pieces]);
+
+      const toBoard = (e) => {
+        const svg = svgRef.current; const pt = svg.createSVGPoint(); pt.x = e.clientX; pt.y = e.clientY;
+        const p = pt.matrixTransform(svg.getScreenCTM().inverse()); return [(p.x - OX) / CELL, (p.y - OY) / CELL];
+      };
+      const onDown = (i, e) => {
+        e.stopPropagation(); setSel(i); setProbe(null);
+        const [bx, by] = toBoard(e); drag.current = { i, startAnchor: pieces[i].anchor.slice(), startMouse: [bx, by] };
+        e.target.setPointerCapture && e.target.setPointerCapture(e.pointerId);
+      };
+      const onMove = (e) => {
+        if (!drag.current) return; const [bx, by] = toBoard(e); const { i, startAnchor, startMouse } = drag.current;
+        const dx = Math.round(bx - startMouse[0]), dy = Math.round(by - startMouse[1]);
+        update(i, { anchor: [startAnchor[0] + dx, startAnchor[1] + dy] });
+      };
+      const onUp = () => { drag.current = null; };
+
+      // fire markers
+      const markers = [];
+      for (let r = 1; r <= ROWS; r++) { markers.push(['L', r], ['R', r]); }
+      for (let c = 1; c <= COLS; c++) { markers.push(['T', c], ['B', c]); }
+      const markerPos = (side, line) => {
+        if (side === 'L') return PX(0, line - 0.5); if (side === 'R') return PX(10, line - 0.5);
+        if (side === 'T') return PX(line - 0.5, 0); return PX(line - 0.5, 8);
+      };
+      const markerOff = (side) => side === 'L' ? [-15, 0] : side === 'R' ? [15, 0] : side === 'T' ? [0, -15] : [0, 15];
+
+      return (
+        <div>
+          <h1>ORAPA <span className="g">MINE</span> — éditeur de disposition</h1>
+          <p className="sub">Ajoute des pièces, déplace-les (glisser ou flèches), pivote (<kbd>R</kbd>) et retourne (<kbd>F</kbd>).
+            Clique un point du bord pour tirer une onde et voir sa sortie.</p>
+          <div className="layout">
+            <div className="boardwrap">
+              <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} onPointerMove={onMove} onPointerUp={onUp} onPointerLeave={onUp}
+                onPointerDown={() => { setSel(null); }}>
+                <rect x={OX - 14} y={OY - 14} width={COLS * CELL + 28} height={ROWS * CELL + 28} rx="12" fill="#1e2f4d" stroke="#3b5580" strokeWidth="2" />
+                {Array.from({ length: COLS + 1 }, (_, x) => <line key={'v' + x} x1={PX(x, 0)[0]} y1={PX(x, 0)[1]} x2={PX(x, ROWS)[0]} y2={PX(x, ROWS)[1]} stroke="#33507e" strokeWidth="1" />)}
+                {Array.from({ length: ROWS + 1 }, (_, y) => <line key={'h' + y} x1={PX(0, y)[0]} y1={PX(0, y)[1]} x2={PX(COLS, y)[0]} y2={PX(0, y)[1]} stroke="#33507e" strokeWidth="1" />)}
+                {Array.from({ length: COLS }, (_, i) => (<g key={'cl' + i}>
+                  <text x={PX(i + 0.5, 0)[0]} y={OY - 32} textAnchor="middle" fontSize="11" fontFamily="monospace" fill="#9fb2cf">{i + 1}</text>
+                  <text x={PX(i + 0.5, 0)[0]} y={OY + ROWS * CELL + 36} textAnchor="middle" fontSize="11" fontFamily="monospace" fill="#9fb2cf">{BOT[i]}</text></g>))}
+                {Array.from({ length: ROWS }, (_, i) => (<g key={'rl' + i}>
+                  <text x={OX - 34} y={PX(0, i + 0.5)[1] + 4} textAnchor="middle" fontSize="11" fontFamily="monospace" fill="#9fb2cf">{LEFT[i]}</text>
+                  <text x={OX + COLS * CELL + 34} y={PX(0, i + 0.5)[1] + 4} textAnchor="middle" fontSize="11" fontFamily="monospace" fill="#9fb2cf">{10 + i + 1}</text></g>))}
+
+                {/* beam */}
+                {beam && beam.path.map((pt, i) => {
+                  if (i === beam.path.length - 1) return null; const a = PX(...pt), b = PX(...beam.path[i + 1]);
+                  const col = HEX[beam.seg[i]] || '#9aa7bd'; const dash = beam.seg[i] === 'transparent';
+                  return <line key={'bm' + i} x1={a[0]} y1={a[1]} x2={b[0]} y2={b[1]} stroke={col} strokeWidth="4" strokeLinecap="round" strokeDasharray={dash ? '5 5' : '0'} opacity="0.95" />;
+                })}
+                {beam && beam.path.slice(1, -1).map((pt, i) => { const a = PX(...pt); return <circle key={'bt' + i} cx={a[0]} cy={a[1]} r="3" fill="#fff" opacity="0.9" />; })}
+
+                {/* pieces */}
+                {pieces.map((pc, i) => {
+                  const poly = placedPoly(pc); const pts = poly.map(([x, y]) => PX(x, y).join(',')).join(' ');
+                  const m = META[pc.name]; const selc = i === sel;
+                  return <polygon key={'pc' + i} points={pts} fill={m.fill} fillOpacity="0.96"
+                    stroke={selc ? '#e9c46a' : m.stroke} strokeWidth={selc ? 3 : 1.5} strokeLinejoin="round"
+                    style={{ cursor: 'grab' }} onPointerDown={(e) => onDown(i, e)} />;
+                })}
+
+                {/* fire markers */}
+                {markers.map(([side, line], i) => {
+                  const [mx, my] = markerPos(side, line); const [ox, oy] = markerOff(side);
+                  const active = probe && probe.side === side && probe.line === line;
+                  return <circle key={'mk' + i} cx={mx + ox} cy={my + oy} r="7" fill={active ? '#e9c46a' : '#0d1730'} stroke="#4a6699" strokeWidth="1.3"
+                    style={{ cursor: 'pointer' }} onPointerDown={(e) => { e.stopPropagation(); setProbe({ side, line }); }}>
+                    <title>{`Tirer depuis ${entLabel(side, line)}`}</title></circle>;
+                })}
+
+                {/* exit marker */}
+                {beam && beam.ex[0] !== 'LOOP' && (() => {
+                  const e = PX(...beam.path[beam.path.length - 1]);
+                  return <circle cx={e[0]} cy={e[1]} r="7" fill={HEX[beam.col] || '#fff'} stroke="#0b1220" strokeWidth="1.6" />;
+                })()}
+              </svg>
+            </div>
+
+            <div className="side">
+              <div className="panel">
+                <h3>Pièces</h3>
+                {ORDER.map(name => {
+                  const placed = pieces.some(p => p.name === name); const m = META[name];
+                  return <button key={name} className="pbtn" disabled={placed} onClick={() => addPiece(name)}>
+                    <span className="sw" style={{ background: m.fill }}></span>
+                    {placed ? `${m.label} — placée` : `＋ Ajouter ${m.label}`}</button>;
+                })}
+                <div className="row" style={{ marginTop: 4 }}>
+                  <button onClick={() => { setPieces([]); setSel(null); setProbe(null); }}>↺ Tout effacer</button>
+                </div>
+              </div>
+
+              {sel != null && pieces[sel] && (
+                <div className="panel">
+                  <h3>Pièce sélectionnée : {META[pieces[sel].name].label}</h3>
+                  <div className="row">
+                    <button onClick={() => rotate(sel)}>⟳ Pivoter (R)</button>
+                    <button onClick={() => flip(sel)}>⇋ Retourner (F)</button>
+                    <button onClick={() => del(sel)}>🗑 Supprimer</button>
+                  </div>
+                  <p className="muted" style={{ marginBottom: 0 }}>Glisse la pièce ou utilise les flèches du clavier pour la déplacer.</p>
+                </div>)}
+
+              <div className="panel">
+                <h3>Sondage</h3>
+                {beam ? (
+                  <div className="result">
+                    <b>{entLabel(probe.side, probe.line)}</b> →
+                    <b>{exLabel(beam.ex)}</b>
+                    <span className="bigsw" style={{ background: HEX[beam.col] || '#334155' }}></span>
+                    <b style={{ color: '#e9c46a' }}>{beam.col}</b>
+                    {beam.colors.length > 0 && <span className="muted">(touche&nbsp;: {beam.colors.map(c => FR[c] || c).join(' + ')})</span>}
+                  </div>
+                ) : <p className="muted" style={{ margin: 0 }}>Clique un rond sur le bord du plateau pour envoyer une onde.</p>}
+                <div className="row" style={{ marginTop: 8 }}>
+                  <button onClick={() => setShowAll(s => !s)}>{showAll ? 'Masquer' : 'Voir'} les 36 sondages</button>
+                  {probe && <button onClick={() => setProbe(null)}>Effacer le rayon</button>}
+                </div>
+                {showAll && <AllProbes board={board} />}
+              </div>
+
+              <div className="panel">
+                <h3>Débug</h3>
+                <div className="row">
+                  <button onClick={() => console.log('[orapa] plateau', JSON.stringify(snapshotJSON(pieces), null, 2))}>🐛 Logger le JSON</button>
+                  <button onClick={copyJSON}>{copied ? '✓ Copié' : '📋 Copier le JSON'}</button>
+                </div>
+                <label className="chip" style={{ marginTop: 8 }}>
+                  <input type="checkbox" checked={autoLog} onChange={e => setAutoLog(e.target.checked)} />
+                  Log auto à chaque changement
+                </label>
+                <p className="muted" style={{ marginBottom: 0 }}>Console : <kbd>__debug()</kbd> (objet) ou <kbd>__debugJSON()</kbd> (texte).</p>
+              </div>
+
+              <div className="panel">
+                <div className={'status ' + (legal.ok ? 'ok' : 'bad')}>{pieces.length === 0 ? 'Ajoute des pièces pour commencer.' : legal.msg}</div>
+                <div className="legend" style={{ marginTop: 10 }}>
+                  {Object.entries({ rouge: 'Rouge', jaune: 'Jaune', bleu: 'Bleu', blanc: 'Blanc', orange: 'Orange', violet: 'Violet', vert: 'Vert', noir: 'Noir', gris: 'Gris', rose: 'Rose', citron: 'Citron', 'bleu ciel': 'Bleu ciel', 'vert clair': 'Vert clair', 'violet clair': 'Violet clair', 'orange clair': 'Orange clair' }).map(([k, l]) =>
+                    <span className="chip" key={k}><span className="sw" style={{ width: 12, height: 12, background: HEX[k] }}></span>{l}</span>)}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    function AllProbes({ board }) {
+      const rows = [];
+      for (let r = 1; r <= 8; r++)for (const s of ['L', 'R']) { const b = fire2(board, s, r); rows.push([entLabel(s, r), exLabel(b.ex), b.col]); }
+      for (let c = 1; c <= 10; c++)for (const s of ['T', 'B']) { const b = fire2(board, s, c); rows.push([entLabel(s, c), exLabel(b.ex), b.col]); }
+      return <div className="tabwrap" style={{ marginTop: 8 }}><table><tbody>
+        {rows.map((r, i) => <tr key={i}><td>{r[0]}</td><td>→</td><td>{r[1]}</td><td><span className="sw" style={{ width: 11, height: 11, display: 'inline-block', background: HEX[r[2]] || '#334155', verticalAlign: 'middle' }}></span> {r[2]}</td></tr>)}
+      </tbody></table></div>;
+    }
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+
+</html>
