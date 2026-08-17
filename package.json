@@ -1,0 +1,13 @@
+{
+  "name": "orapa-mine",
+  "version": "1.0.0",
+  "description": "Orapa Mine — mode solo et éditeur de disposition, avec archives SQLite",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=22.5"
+  }
+}

@@ -259,6 +259,36 @@
       max-height: 220px;
       overflow: auto
     }
+
+    .txt {
+      font: inherit;
+      font-size: 12.5px;
+      flex: 1 1 120px;
+      min-width: 120px;
+      padding: 7px 9px;
+      border-radius: 9px;
+      border: 1px solid var(--line);
+      background: #0d1730;
+      color: var(--ink)
+    }
+
+    .arch td {
+      text-align: left;
+      padding: 5px 7px;
+      font-size: 12px
+    }
+
+    .arch button {
+      padding: 3px 7px;
+      font-size: 11.5px;
+      white-space: nowrap
+    }
+
+    .arch .row {
+      gap: 4px;
+      flex-wrap: nowrap;
+      justify-content: flex-end
+    }
   </style>
 </head>
 
@@ -452,6 +482,30 @@
       return allProbesJSON(board).map(p => p.entree + '>' + p.sortie + ':' + p.couleur);
     }
 
+    // ---------- API (serveur Node + SQLite) ----------
+    async function apiReq(method, path, body) {
+      let res;
+      try {
+        res = await fetch('/api' + path, {
+          method,
+          headers: body ? { 'content-type': 'application/json' } : undefined,
+          body: body ? JSON.stringify(body) : undefined,
+        });
+      } catch (e) { throw new Error('serveur injoignable — lance `npm start` puis ouvre http://localhost:3000'); }
+      if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.error || `erreur ${res.status}`); }
+      return res.status === 204 ? null : res.json();
+    }
+    const api = {
+      layouts: (source) => apiReq('GET', '/layouts' + (source ? '?source=' + source : '')),
+      saveLayout: (l) => apiReq('POST', '/layouts', l),
+      delLayout: (id) => apiReq('DELETE', '/layouts/' + id),
+      games: () => apiReq('GET', '/games'),
+      saveGame: (g) => apiReq('POST', '/games', g),
+      delGame: (id) => apiReq('DELETE', '/games/' + id),
+    };
+    const sig = (pieces) => probeResults(pieces).join('|');
+    const dateFR = (iso) => new Date(iso).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' });
+
     // ---------- Édition de pièces (partagée par les deux modes) ----------
     function useEditor(active) {
       const [pieces, setPieces] = useState([]);
@@ -470,6 +524,8 @@
       useEffect(() => {
         if (!active) return;
         const h = (e) => {
+          const t = e.target;   // ne pas piloter les pièces pendant une saisie
+          if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
           if (sel == null) return; const p = pieces[sel]; if (!p) return;
           const move = (dx, dy) => update(sel, { anchor: [p.anchor[0] + dx, p.anchor[1] + dy] });
           if (e.key === 'r' || e.key === 'R') rotate(sel);
@@ -656,6 +712,88 @@
       );
     }
 
+    function SaveLayoutPanel({ pieces }) {
+      const [name, setName] = useState('');
+      const [msg, setMsg] = useState(null);
+      const save = () => {
+        setMsg(null);
+        api.saveLayout({ name: name.trim() || null, source: 'validation', pieces, signature: sig(pieces) })
+          .then(l => { setMsg({ ok: true, txt: `Positionnement enregistré (#${l.id}) — retrouve-le dans ARCHIVES.` }); setName(''); })
+          .catch(e => setMsg({ ok: false, txt: e.message }));
+      };
+      return (
+        <div className="panel">
+          <h3>Enregistrer</h3>
+          <div className="row">
+            <input className="txt" placeholder="Nom (optionnel)" value={name} maxLength={80}
+              onChange={e => setName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && pieces.length) save(); }} />
+            <button disabled={!pieces.length} onClick={save}>💾 Enregistrer</button>
+          </div>
+          {msg && <div className={'status ' + (msg.ok ? 'ok' : 'bad')} style={{ marginTop: 8 }}>{msg.txt}</div>}
+        </div>
+      );
+    }
+
+    // ---------- Mode ARCHIVES (parties et positionnements enregistrés) ----------
+    function Archives({ active, onLoad, onPlay }) {
+      const [games, setGames] = useState([]);
+      const [layouts, setLayouts] = useState([]);
+      const [err, setErr] = useState(null);
+
+      const reload = () => Promise.all([api.games(), api.layouts('validation')])
+        .then(([g, l]) => { setGames(g); setLayouts(l); setErr(null); })
+        .catch(e => setErr(e.message));
+      useEffect(() => { if (active) reload(); }, [active]);
+
+      const delGame = (id) => api.delGame(id).then(reload).catch(e => setErr(e.message));
+      const delLayout = (id) => api.delLayout(id).then(reload).catch(e => setErr(e.message));
+
+      return (
+        <div>
+          <p className="sub">Toutes tes parties solo et tes positionnements enregistrés.
+            Une ligne se recharge dans l'éditeur, ou se rejoue en solo comme disposition cachée.</p>
+
+          {err && <div className="panel"><div className="status bad">{err}</div></div>}
+
+          <div className="panel" style={{ marginBottom: 12 }}>
+            <h3>Parties solo ({games.length})</h3>
+            {games.length === 0
+              ? <p className="muted" style={{ margin: 0 }}>Aucune partie enregistrée pour l'instant.</p>
+              : <table className="arch"><tbody>
+                {games.map(g => <tr key={g.id}>
+                  <td>{dateFR(g.created_at)}</td>
+                  <td><b style={{ color: 'var(--gold)' }}>{g.score}</b> question{g.score > 1 ? 's' : ''}</td>
+                  <td>{g.won ? '✓ trouvée' : '— non trouvée'}</td>
+                  <td><div className="row">
+                    <button onClick={() => onLoad(g.solution)}>📂 Voir la solution</button>
+                    <button onClick={() => onPlay(g.solution)}>🎲 Rejouer</button>
+                    <button onClick={() => delGame(g.id)}>🗑</button>
+                  </div></td>
+                </tr>)}
+              </tbody></table>}
+          </div>
+
+          <div className="panel">
+            <h3>Positionnements ({layouts.length})</h3>
+            {layouts.length === 0
+              ? <p className="muted" style={{ margin: 0 }}>Rien d'enregistré — utilise « 💾 Enregistrer » en mode VALIDATION.</p>
+              : <table className="arch"><tbody>
+                {layouts.map(l => <tr key={l.id}>
+                  <td>{dateFR(l.created_at)}</td>
+                  <td>{l.name || <span className="muted">sans nom</span>}</td>
+                  <td>{l.pieces.length} pièce{l.pieces.length > 1 ? 's' : ''}</td>
+                  <td><div className="row">
+                    <button onClick={() => onLoad(l.pieces)}>📂 Charger</button>
+                    <button onClick={() => onPlay(l.pieces)}>🎲 Jouer</button>
+                    <button onClick={() => delLayout(l.id)}>🗑</button>
+                  </div></td>
+                </tr>)}
+              </tbody></table>}
+          </div>
+        </div>
+      );
+    }
+
     function ProbeTable({ rows }) {
       return <div className="tabwrap" style={{ marginTop: 8 }}><table><tbody>
         {rows.map((r, i) => <tr key={i}><td>{r[0]}</td><td>→</td><td>{r[1]}</td><td>
@@ -664,10 +802,14 @@
     }
 
     // ---------- Mode VALIDATION (éditeur + sondage) ----------
-    function Validation({ active }) {
+    function Validation({ active, bridge }) {
       const ed = useEditor(active);
       const [probe, setProbe] = useState(null);
       const [showAll, setShowAll] = useState(false);
+
+      useEffect(() => {
+        bridge.current.loadValidation = (pieces) => { ed.setPieces(pieces.map(p => ({ ...p }))); ed.setSel(null); setProbe(null); };
+      });
 
       const board = buildBoard(ed.pieces);
       const legal = legalCheck(ed.pieces);
@@ -712,6 +854,7 @@
                 {showAll && <ProbeTable rows={allRows} />}
               </div>
 
+              <SaveLayoutPanel pieces={ed.pieces} />
               <StatusPanel pieces={ed.pieces} legal={legal} />
               <DebugPanel active={active} pieces={ed.pieces} board={board} probe={probe} />
             </div>
@@ -721,19 +864,33 @@
     }
 
     // ---------- Mode SOLO (disposition cachée à deviner) ----------
-    function Solo({ active }) {
+    function Solo({ active, bridge }) {
       const ed = useEditor(active);
       const [solution, setSolution] = useState(randomLayout);
       const [asked, setAsked] = useState([]);
       const [revealed, setRevealed] = useState(false);
       const [verdict, setVerdict] = useState(null);
+      const [saved, setSaved] = useState(null);
 
       const solBoard = buildBoard(solution);
       const legal = legalCheck(ed.pieces);
 
-      const newGame = () => { setSolution(randomLayout()); setAsked([]); setRevealed(false); setVerdict(null); ed.clear(); };
+      const start = (layout) => { setSolution(layout); setAsked([]); setRevealed(false); setVerdict(null); setSaved(null); ed.clear(); };
+      const newGame = () => start(randomLayout());
 
       useEffect(() => { if (active) window.__solution = () => snapshotJSON(solution); }, [active, solution]);
+      useEffect(() => { bridge.current.playSolo = (pieces) => start(pieces.map(p => ({ ...p }))); });
+
+      const saveGame = (won) => {
+        setSaved({ pending: true });
+        api.saveGame({
+          solution, guess: ed.pieces,
+          questions: asked.map(q => ({ entree: q.entree, sortie: q.sortie, couleur: q.couleur })),
+          score: asked.length, won,
+          signature: sig(solution),
+          guessSignature: ed.pieces.length ? sig(ed.pieces) : null,
+        }).then(g => setSaved({ id: g.id })).catch(e => setSaved({ error: e.message }));
+      };
 
       const ask = (side, line) => {
         if (asked.some(q => q.side === side && q.line === line)) return;
@@ -757,6 +914,7 @@
         setVerdict(diff === 0
           ? { ok: true, msg: `Gagné ! Ta disposition donne les mêmes 36 sondages, en ${asked.length} question${asked.length > 1 ? 's' : ''}.` }
           : { ok: false, msg: `Pas encore : ${diff} sondage${diff > 1 ? 's' : ''} sur 36 diffèrent de la disposition cachée.` });
+        if (diff === 0 && !saved) saveGame(true);   // une partie gagnée s'archive toute seule
       };
 
       return (
@@ -783,8 +941,11 @@
                   <button onClick={newGame}>🎲 Nouvelle partie</button>
                   <button onClick={verify}>✔ Vérifier</button>
                   <button onClick={() => setRevealed(r => !r)}>{revealed ? '🙈 Masquer' : '👁 Révéler'} la solution</button>
+                  <button onClick={() => saveGame(verdict ? verdict.ok : false)} disabled={saved && saved.pending}>💾 Enregistrer la partie</button>
                 </div>
                 {verdict && <div className={'status ' + (verdict.ok ? 'ok' : 'bad')} style={{ marginTop: 8 }}>{verdict.msg}</div>}
+                {saved && !saved.pending && <div className={'status ' + (saved.error ? 'bad' : 'ok')} style={{ marginTop: 8 }}>
+                  {saved.error || `Partie archivée (#${saved.id}) — retrouve-la dans ARCHIVES.`}</div>}
               </div>
 
               <div className="panel">
@@ -808,15 +969,17 @@
 
     function App() {
       const [mode, setMode] = useState('solo');
+      const bridge = useRef({});
+      const onLoad = (pieces) => { bridge.current.loadValidation(pieces); setMode('validation'); };
+      const onPlay = (pieces) => { bridge.current.playSolo(pieces); setMode('solo'); };
+      const tab = (id, label) => <button className={'tab' + (mode === id ? ' active' : '')} onClick={() => setMode(id)}>{label}</button>;
       return (
         <div>
           <h1>ORAPA <span className="g">MINE</span></h1>
-          <div className="tabs">
-            <button className={'tab' + (mode === 'solo' ? ' active' : '')} onClick={() => setMode('solo')}>SOLO</button>
-            <button className={'tab' + (mode === 'validation' ? ' active' : '')} onClick={() => setMode('validation')}>VALIDATION</button>
-          </div>
-          <div style={{ display: mode === 'solo' ? 'block' : 'none' }}><Solo active={mode === 'solo'} /></div>
-          <div style={{ display: mode === 'validation' ? 'block' : 'none' }}><Validation active={mode === 'validation'} /></div>
+          <div className="tabs">{tab('solo', 'SOLO')}{tab('validation', 'VALIDATION')}{tab('archives', 'ARCHIVES')}</div>
+          <div style={{ display: mode === 'solo' ? 'block' : 'none' }}><Solo active={mode === 'solo'} bridge={bridge} /></div>
+          <div style={{ display: mode === 'validation' ? 'block' : 'none' }}><Validation active={mode === 'validation'} bridge={bridge} /></div>
+          <div style={{ display: mode === 'archives' ? 'block' : 'none' }}><Archives active={mode === 'archives'} onLoad={onLoad} onPlay={onPlay} /></div>
         </div>
       );
     }
