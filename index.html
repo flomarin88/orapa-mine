@@ -55,6 +55,30 @@
       line-height: 1.5
     }
 
+    .tabs {
+      display: flex;
+      justify-content: center;
+      gap: 8px;
+      margin: 12px 0 14px
+    }
+
+    .tab {
+      padding: 8px 20px;
+      font-weight: 600;
+      letter-spacing: .6px
+    }
+
+    .tab.active {
+      background: var(--gold);
+      border-color: var(--gold);
+      color: #1a1206
+    }
+
+    .tab.active:hover {
+      background: var(--gold);
+      border-color: var(--gold)
+    }
+
     .layout {
       display: flex;
       gap: 18px;
@@ -388,81 +412,89 @@
       };
     }
 
-    function App() {
+    // ---------- Solo : génération d'une disposition et comparaison ----------
+    function shuffled(arr) {
+      const a = arr.slice();
+      for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
+      return a;
+    }
+    function randomLayout() {
+      for (let attempt = 0; attempt < 30; attempt++) {
+        const placed = [];
+        for (const name of ORDER) {
+          const cands = [];
+          for (let rot = 0; rot < 4; rot++) for (const flip of [false, true])
+            for (let x = 0; x <= COLS; x++) for (let y = 0; y <= ROWS; y++) cands.push({ name, anchor: [x, y], rot, flip });
+          const hit = shuffled(cands).find(c => legalCheck([...placed, c]).ok);
+          if (!hit) break;
+          placed.push(hit);
+        }
+        if (placed.length === ORDER.length) return placed;
+      }
+      return ORDER.map(name => ({ name, anchor: DEFAULT_ANCHOR[name].slice(), rot: 0, flip: false }));
+    }
+    function probeResults(pieces) {
+      const board = buildBoard(pieces);
+      return allProbesJSON(board).map(p => p.entree + '>' + p.sortie + ':' + p.couleur);
+    }
+
+    // ---------- Édition de pièces (partagée par les deux modes) ----------
+    function useEditor(active) {
       const [pieces, setPieces] = useState([]);
       const [sel, setSel] = useState(null);
-      const [probe, setProbe] = useState(null);
-      const [showAll, setShowAll] = useState(false);
-      const [autoLog, setAutoLog] = useState(true);
-      const [copied, setCopied] = useState(false);
-      const svgRef = useRef(null);
-      const drag = useRef(null);
-
-      const board = buildBoard(pieces);
-      const legal = legalCheck(pieces);
-      const beam = probe ? fire2(board, probe.side, probe.line) : null;
-
+      const update = (i, patch) => setPieces(ps => ps.map((p, k) => k === i ? { ...p, ...patch } : p));
       const addPiece = (name) => {
         if (pieces.some(p => p.name === name)) return;
         setPieces([...pieces, { name, anchor: DEFAULT_ANCHOR[name].slice(), rot: 0, flip: false }]);
-        setSel(pieces.length); setProbe(null);
+        setSel(pieces.length);
       };
-      const update = (i, patch) => setPieces(ps => ps.map((p, k) => k === i ? { ...p, ...patch } : p));
       const del = (i) => { setPieces(ps => ps.filter((_, k) => k !== i)); setSel(null); };
       const rotate = (i) => update(i, { rot: (pieces[i].rot + 1) % 4 });
       const flip = (i) => update(i, { flip: !pieces[i].flip });
+      const clear = () => { setPieces([]); setSel(null); };
 
-      // debug JSON
       useEffect(() => {
-        window.__debug = () => snapshotJSON(pieces);
-        window.__debugJSON = () => JSON.stringify(snapshotJSON(pieces), null, 2);
-      }, [pieces]);
-      useEffect(() => {
-        if (!autoLog) return;
-        console.log('[orapa] plateau', snapshotJSON(pieces));
-      }, [pieces, autoLog]);
-      useEffect(() => {
-        if (!autoLog || !probe) return;
-        console.log('[orapa] sondage', probeJSON(board, probe.side, probe.line));
-      }, [probe, pieces, autoLog]);
-      const copyJSON = () => {
-        navigator.clipboard.writeText(JSON.stringify(snapshotJSON(pieces), null, 2))
-          .then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); })
-          .catch(err => console.error('[orapa] copie impossible', err));
-      };
-
-      // keyboard
-      useEffect(() => {
+        if (!active) return;
         const h = (e) => {
           if (sel == null) return; const p = pieces[sel]; if (!p) return;
-          if (e.key === 'r' || e.key === 'R') { rotate(sel); e.preventDefault(); }
-          else if (e.key === 'f' || e.key === 'F') { flip(sel); e.preventDefault(); }
-          else if (e.key === 'Delete' || e.key === 'Backspace') { del(sel); e.preventDefault(); }
-          else if (e.key === 'ArrowLeft') { update(sel, { anchor: [p.anchor[0] - 1, p.anchor[1]] }); e.preventDefault(); }
-          else if (e.key === 'ArrowRight') { update(sel, { anchor: [p.anchor[0] + 1, p.anchor[1]] }); e.preventDefault(); }
-          else if (e.key === 'ArrowUp') { update(sel, { anchor: [p.anchor[0], p.anchor[1] - 1] }); e.preventDefault(); }
-          else if (e.key === 'ArrowDown') { update(sel, { anchor: [p.anchor[0], p.anchor[1] + 1] }); e.preventDefault(); }
+          const move = (dx, dy) => update(sel, { anchor: [p.anchor[0] + dx, p.anchor[1] + dy] });
+          if (e.key === 'r' || e.key === 'R') rotate(sel);
+          else if (e.key === 'f' || e.key === 'F') flip(sel);
+          else if (e.key === 'Delete' || e.key === 'Backspace') del(sel);
+          else if (e.key === 'ArrowLeft') move(-1, 0);
+          else if (e.key === 'ArrowRight') move(1, 0);
+          else if (e.key === 'ArrowUp') move(0, -1);
+          else if (e.key === 'ArrowDown') move(0, 1);
+          else return;
+          e.preventDefault();
         };
         window.addEventListener('keydown', h); return () => window.removeEventListener('keydown', h);
-      }, [sel, pieces]);
+      }, [active, sel, pieces]);
+
+      return { pieces, setPieces, sel, setSel, update, addPiece, del, rotate, flip, clear };
+    }
+
+    // ---------- Plateau ----------
+    function BoardView({ pieces, sel, onSelect, onMovePiece, beam, probe, onMarker, markerFill, ghost }) {
+      const svgRef = useRef(null);
+      const drag = useRef(null);
 
       const toBoard = (e) => {
         const svg = svgRef.current; const pt = svg.createSVGPoint(); pt.x = e.clientX; pt.y = e.clientY;
         const p = pt.matrixTransform(svg.getScreenCTM().inverse()); return [(p.x - OX) / CELL, (p.y - OY) / CELL];
       };
       const onDown = (i, e) => {
-        e.stopPropagation(); setSel(i); setProbe(null);
+        e.stopPropagation(); onSelect(i);
         const [bx, by] = toBoard(e); drag.current = { i, startAnchor: pieces[i].anchor.slice(), startMouse: [bx, by] };
         e.target.setPointerCapture && e.target.setPointerCapture(e.pointerId);
       };
       const onMove = (e) => {
         if (!drag.current) return; const [bx, by] = toBoard(e); const { i, startAnchor, startMouse } = drag.current;
         const dx = Math.round(bx - startMouse[0]), dy = Math.round(by - startMouse[1]);
-        update(i, { anchor: [startAnchor[0] + dx, startAnchor[1] + dy] });
+        onMovePiece(i, [startAnchor[0] + dx, startAnchor[1] + dy]);
       };
       const onUp = () => { drag.current = null; };
 
-      // fire markers
       const markers = [];
       for (let r = 1; r <= ROWS; r++) { markers.push(['L', r], ['R', r]); }
       for (let c = 1; c <= COLS; c++) { markers.push(['T', c], ['B', c]); }
@@ -473,82 +505,180 @@
       const markerOff = (side) => side === 'L' ? [-15, 0] : side === 'R' ? [15, 0] : side === 'T' ? [0, -15] : [0, 15];
 
       return (
+        <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} onPointerMove={onMove} onPointerUp={onUp} onPointerLeave={onUp}
+          onPointerDown={() => onSelect(null)}>
+          <rect x={OX - 14} y={OY - 14} width={COLS * CELL + 28} height={ROWS * CELL + 28} rx="12" fill="#1e2f4d" stroke="#3b5580" strokeWidth="2" />
+          {Array.from({ length: COLS + 1 }, (_, x) => <line key={'v' + x} x1={PX(x, 0)[0]} y1={PX(x, 0)[1]} x2={PX(x, ROWS)[0]} y2={PX(x, ROWS)[1]} stroke="#33507e" strokeWidth="1" />)}
+          {Array.from({ length: ROWS + 1 }, (_, y) => <line key={'h' + y} x1={PX(0, y)[0]} y1={PX(0, y)[1]} x2={PX(COLS, y)[0]} y2={PX(0, y)[1]} stroke="#33507e" strokeWidth="1" />)}
+          {Array.from({ length: COLS }, (_, i) => (<g key={'cl' + i}>
+            <text x={PX(i + 0.5, 0)[0]} y={OY - 32} textAnchor="middle" fontSize="11" fontFamily="monospace" fill="#9fb2cf">{i + 1}</text>
+            <text x={PX(i + 0.5, 0)[0]} y={OY + ROWS * CELL + 36} textAnchor="middle" fontSize="11" fontFamily="monospace" fill="#9fb2cf">{BOT[i]}</text></g>))}
+          {Array.from({ length: ROWS }, (_, i) => (<g key={'rl' + i}>
+            <text x={OX - 34} y={PX(0, i + 0.5)[1] + 4} textAnchor="middle" fontSize="11" fontFamily="monospace" fill="#9fb2cf">{LEFT[i]}</text>
+            <text x={OX + COLS * CELL + 34} y={PX(0, i + 0.5)[1] + 4} textAnchor="middle" fontSize="11" fontFamily="monospace" fill="#9fb2cf">{10 + i + 1}</text></g>))}
+
+          {/* beam */}
+          {beam && beam.path.map((pt, i) => {
+            if (i === beam.path.length - 1) return null; const a = PX(...pt), b = PX(...beam.path[i + 1]);
+            const col = HEX[beam.seg[i]] || '#9aa7bd'; const dash = beam.seg[i] === 'transparent';
+            return <line key={'bm' + i} x1={a[0]} y1={a[1]} x2={b[0]} y2={b[1]} stroke={col} strokeWidth="4" strokeLinecap="round" strokeDasharray={dash ? '5 5' : '0'} opacity="0.95" />;
+          })}
+          {beam && beam.path.slice(1, -1).map((pt, i) => { const a = PX(...pt); return <circle key={'bt' + i} cx={a[0]} cy={a[1]} r="3" fill="#fff" opacity="0.9" />; })}
+
+          {/* solution révélée */}
+          {ghost && ghost.map((pc, i) => {
+            const pts = placedPoly(pc).map(([x, y]) => PX(x, y).join(',')).join(' '); const m = META[pc.name];
+            return <polygon key={'gh' + i} points={pts} fill={m.fill} fillOpacity="0.22" stroke={m.fill} strokeWidth="2"
+              strokeDasharray="7 4" strokeLinejoin="round" style={{ pointerEvents: 'none' }} />;
+          })}
+
+          {/* pièces */}
+          {pieces.map((pc, i) => {
+            const poly = placedPoly(pc); const pts = poly.map(([x, y]) => PX(x, y).join(',')).join(' ');
+            const m = META[pc.name]; const selc = i === sel;
+            return <polygon key={'pc' + i} points={pts} fill={m.fill} fillOpacity="0.96"
+              stroke={selc ? '#e9c46a' : m.stroke} strokeWidth={selc ? 3 : 1.5} strokeLinejoin="round"
+              style={{ cursor: 'grab' }} onPointerDown={(e) => onDown(i, e)} />;
+          })}
+
+          {/* points de tir */}
+          {markers.map(([side, line], i) => {
+            const [mx, my] = markerPos(side, line); const [ox, oy] = markerOff(side);
+            const active = probe && probe.side === side && probe.line === line;
+            const fill = active ? '#e9c46a' : (markerFill && markerFill(side, line)) || '#0d1730';
+            return <circle key={'mk' + i} cx={mx + ox} cy={my + oy} r="7" fill={fill} stroke="#4a6699" strokeWidth="1.3"
+              style={{ cursor: 'pointer' }} onPointerDown={(e) => { e.stopPropagation(); onMarker(side, line); }}>
+              <title>{`Tirer depuis ${entLabel(side, line)}`}</title></circle>;
+          })}
+
+          {/* point de sortie */}
+          {beam && beam.ex[0] !== 'LOOP' && (() => {
+            const e = PX(...beam.path[beam.path.length - 1]);
+            return <circle cx={e[0]} cy={e[1]} r="7" fill={HEX[beam.col] || '#fff'} stroke="#0b1220" strokeWidth="1.6" />;
+          })()}
+        </svg>
+      );
+    }
+
+    // ---------- Panneaux partagés ----------
+    function PiecesPanel({ ed, title }) {
+      return (<>
+        <div className="panel">
+          <h3>{title}</h3>
+          {ORDER.map(name => {
+            const placed = ed.pieces.some(p => p.name === name); const m = META[name];
+            return <button key={name} className="pbtn" disabled={placed} onClick={() => ed.addPiece(name)}>
+              <span className="sw" style={{ background: m.fill }}></span>
+              {placed ? `${m.label} — placée` : `＋ Ajouter ${m.label}`}</button>;
+          })}
+          <div className="row" style={{ marginTop: 4 }}>
+            <button onClick={ed.clear}>↺ Tout effacer</button>
+          </div>
+        </div>
+
+        {ed.sel != null && ed.pieces[ed.sel] && (
+          <div className="panel">
+            <h3>Pièce sélectionnée : {META[ed.pieces[ed.sel].name].label}</h3>
+            <div className="row">
+              <button onClick={() => ed.rotate(ed.sel)}>⟳ Pivoter (R)</button>
+              <button onClick={() => ed.flip(ed.sel)}>⇋ Retourner (F)</button>
+              <button onClick={() => ed.del(ed.sel)}>🗑 Supprimer</button>
+            </div>
+            <p className="muted" style={{ marginBottom: 0 }}>Glisse la pièce ou utilise les flèches du clavier pour la déplacer.</p>
+          </div>)}
+      </>);
+    }
+
+    function StatusPanel({ pieces, legal }) {
+      return (
+        <div className="panel">
+          <div className={'status ' + (legal.ok ? 'ok' : 'bad')}>{pieces.length === 0 ? 'Ajoute des pièces pour commencer.' : legal.msg}</div>
+          <div className="legend" style={{ marginTop: 10 }}>
+            {Object.entries({ rouge: 'Rouge', jaune: 'Jaune', bleu: 'Bleu', blanc: 'Blanc', orange: 'Orange', violet: 'Violet', vert: 'Vert', noir: 'Noir', gris: 'Gris', rose: 'Rose', citron: 'Citron', 'bleu ciel': 'Bleu ciel', 'vert clair': 'Vert clair', 'violet clair': 'Violet clair', 'orange clair': 'Orange clair' }).map(([k, l]) =>
+              <span className="chip" key={k}><span className="sw" style={{ width: 12, height: 12, background: HEX[k] }}></span>{l}</span>)}
+          </div>
+        </div>
+      );
+    }
+
+    function DebugPanel({ active, pieces, board, probe, hint, children }) {
+      const [autoLog, setAutoLog] = useState(true);
+      const [copied, setCopied] = useState(false);
+
+      useEffect(() => {
+        if (!active) return;
+        window.__debug = () => snapshotJSON(pieces);
+        window.__debugJSON = () => JSON.stringify(snapshotJSON(pieces), null, 2);
+      }, [active, pieces]);
+      useEffect(() => {
+        if (!active || !autoLog) return;
+        console.log('[orapa] plateau', snapshotJSON(pieces));
+      }, [active, pieces, autoLog]);
+      useEffect(() => {
+        if (!active || !autoLog || !probe) return;
+        console.log('[orapa] sondage', probeJSON(board, probe.side, probe.line));
+      }, [active, probe, pieces, autoLog]);
+
+      const copyJSON = () => {
+        navigator.clipboard.writeText(JSON.stringify(snapshotJSON(pieces), null, 2))
+          .then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); })
+          .catch(err => console.error('[orapa] copie impossible', err));
+      };
+
+      return (
+        <div className="panel">
+          <h3>Débug</h3>
+          <div className="row">
+            <button onClick={() => console.log('[orapa] plateau', JSON.stringify(snapshotJSON(pieces), null, 2))}>🐛 Logger le JSON</button>
+            <button onClick={copyJSON}>{copied ? '✓ Copié' : '📋 Copier le JSON'}</button>
+            {children}
+          </div>
+          <label className="chip" style={{ marginTop: 8 }}>
+            <input type="checkbox" checked={autoLog} onChange={e => setAutoLog(e.target.checked)} />
+            Log auto à chaque changement
+          </label>
+          <p className="muted" style={{ marginBottom: 0 }}>Console : <kbd>__debug()</kbd> (objet) ou <kbd>__debugJSON()</kbd> (texte).{hint}</p>
+        </div>
+      );
+    }
+
+    function ProbeTable({ rows }) {
+      return <div className="tabwrap" style={{ marginTop: 8 }}><table><tbody>
+        {rows.map((r, i) => <tr key={i}><td>{r[0]}</td><td>→</td><td>{r[1]}</td><td>
+          <span className="sw" style={{ width: 11, height: 11, display: 'inline-block', background: HEX[r[2]] || '#334155', verticalAlign: 'middle' }}></span> {r[2]}</td></tr>)}
+      </tbody></table></div>;
+    }
+
+    // ---------- Mode VALIDATION (éditeur + sondage) ----------
+    function Validation({ active }) {
+      const ed = useEditor(active);
+      const [probe, setProbe] = useState(null);
+      const [showAll, setShowAll] = useState(false);
+
+      const board = buildBoard(ed.pieces);
+      const legal = legalCheck(ed.pieces);
+      const beam = probe ? fire2(board, probe.side, probe.line) : null;
+
+      const allRows = [];
+      if (showAll) {
+        for (let r = 1; r <= ROWS; r++) for (const s of ['L', 'R']) { const b = fire2(board, s, r); allRows.push([entLabel(s, r), exLabel(b.ex), b.col]); }
+        for (let c = 1; c <= COLS; c++) for (const s of ['T', 'B']) { const b = fire2(board, s, c); allRows.push([entLabel(s, c), exLabel(b.ex), b.col]); }
+      }
+
+      return (
         <div>
-          <h1>ORAPA <span className="g">MINE</span> — éditeur de disposition</h1>
           <p className="sub">Ajoute des pièces, déplace-les (glisser ou flèches), pivote (<kbd>R</kbd>) et retourne (<kbd>F</kbd>).
             Clique un point du bord pour tirer une onde et voir sa sortie.</p>
           <div className="layout">
             <div className="boardwrap">
-              <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} onPointerMove={onMove} onPointerUp={onUp} onPointerLeave={onUp}
-                onPointerDown={() => { setSel(null); }}>
-                <rect x={OX - 14} y={OY - 14} width={COLS * CELL + 28} height={ROWS * CELL + 28} rx="12" fill="#1e2f4d" stroke="#3b5580" strokeWidth="2" />
-                {Array.from({ length: COLS + 1 }, (_, x) => <line key={'v' + x} x1={PX(x, 0)[0]} y1={PX(x, 0)[1]} x2={PX(x, ROWS)[0]} y2={PX(x, ROWS)[1]} stroke="#33507e" strokeWidth="1" />)}
-                {Array.from({ length: ROWS + 1 }, (_, y) => <line key={'h' + y} x1={PX(0, y)[0]} y1={PX(0, y)[1]} x2={PX(COLS, y)[0]} y2={PX(0, y)[1]} stroke="#33507e" strokeWidth="1" />)}
-                {Array.from({ length: COLS }, (_, i) => (<g key={'cl' + i}>
-                  <text x={PX(i + 0.5, 0)[0]} y={OY - 32} textAnchor="middle" fontSize="11" fontFamily="monospace" fill="#9fb2cf">{i + 1}</text>
-                  <text x={PX(i + 0.5, 0)[0]} y={OY + ROWS * CELL + 36} textAnchor="middle" fontSize="11" fontFamily="monospace" fill="#9fb2cf">{BOT[i]}</text></g>))}
-                {Array.from({ length: ROWS }, (_, i) => (<g key={'rl' + i}>
-                  <text x={OX - 34} y={PX(0, i + 0.5)[1] + 4} textAnchor="middle" fontSize="11" fontFamily="monospace" fill="#9fb2cf">{LEFT[i]}</text>
-                  <text x={OX + COLS * CELL + 34} y={PX(0, i + 0.5)[1] + 4} textAnchor="middle" fontSize="11" fontFamily="monospace" fill="#9fb2cf">{10 + i + 1}</text></g>))}
-
-                {/* beam */}
-                {beam && beam.path.map((pt, i) => {
-                  if (i === beam.path.length - 1) return null; const a = PX(...pt), b = PX(...beam.path[i + 1]);
-                  const col = HEX[beam.seg[i]] || '#9aa7bd'; const dash = beam.seg[i] === 'transparent';
-                  return <line key={'bm' + i} x1={a[0]} y1={a[1]} x2={b[0]} y2={b[1]} stroke={col} strokeWidth="4" strokeLinecap="round" strokeDasharray={dash ? '5 5' : '0'} opacity="0.95" />;
-                })}
-                {beam && beam.path.slice(1, -1).map((pt, i) => { const a = PX(...pt); return <circle key={'bt' + i} cx={a[0]} cy={a[1]} r="3" fill="#fff" opacity="0.9" />; })}
-
-                {/* pieces */}
-                {pieces.map((pc, i) => {
-                  const poly = placedPoly(pc); const pts = poly.map(([x, y]) => PX(x, y).join(',')).join(' ');
-                  const m = META[pc.name]; const selc = i === sel;
-                  return <polygon key={'pc' + i} points={pts} fill={m.fill} fillOpacity="0.96"
-                    stroke={selc ? '#e9c46a' : m.stroke} strokeWidth={selc ? 3 : 1.5} strokeLinejoin="round"
-                    style={{ cursor: 'grab' }} onPointerDown={(e) => onDown(i, e)} />;
-                })}
-
-                {/* fire markers */}
-                {markers.map(([side, line], i) => {
-                  const [mx, my] = markerPos(side, line); const [ox, oy] = markerOff(side);
-                  const active = probe && probe.side === side && probe.line === line;
-                  return <circle key={'mk' + i} cx={mx + ox} cy={my + oy} r="7" fill={active ? '#e9c46a' : '#0d1730'} stroke="#4a6699" strokeWidth="1.3"
-                    style={{ cursor: 'pointer' }} onPointerDown={(e) => { e.stopPropagation(); setProbe({ side, line }); }}>
-                    <title>{`Tirer depuis ${entLabel(side, line)}`}</title></circle>;
-                })}
-
-                {/* exit marker */}
-                {beam && beam.ex[0] !== 'LOOP' && (() => {
-                  const e = PX(...beam.path[beam.path.length - 1]);
-                  return <circle cx={e[0]} cy={e[1]} r="7" fill={HEX[beam.col] || '#fff'} stroke="#0b1220" strokeWidth="1.6" />;
-                })()}
-              </svg>
+              <BoardView pieces={ed.pieces} sel={ed.sel} beam={beam} probe={probe} ghost={null} markerFill={null}
+                onSelect={(i) => { ed.setSel(i); setProbe(null); }}
+                onMovePiece={(i, anchor) => ed.update(i, { anchor })}
+                onMarker={(side, line) => setProbe({ side, line })} />
             </div>
 
             <div className="side">
-              <div className="panel">
-                <h3>Pièces</h3>
-                {ORDER.map(name => {
-                  const placed = pieces.some(p => p.name === name); const m = META[name];
-                  return <button key={name} className="pbtn" disabled={placed} onClick={() => addPiece(name)}>
-                    <span className="sw" style={{ background: m.fill }}></span>
-                    {placed ? `${m.label} — placée` : `＋ Ajouter ${m.label}`}</button>;
-                })}
-                <div className="row" style={{ marginTop: 4 }}>
-                  <button onClick={() => { setPieces([]); setSel(null); setProbe(null); }}>↺ Tout effacer</button>
-                </div>
-              </div>
-
-              {sel != null && pieces[sel] && (
-                <div className="panel">
-                  <h3>Pièce sélectionnée : {META[pieces[sel].name].label}</h3>
-                  <div className="row">
-                    <button onClick={() => rotate(sel)}>⟳ Pivoter (R)</button>
-                    <button onClick={() => flip(sel)}>⇋ Retourner (F)</button>
-                    <button onClick={() => del(sel)}>🗑 Supprimer</button>
-                  </div>
-                  <p className="muted" style={{ marginBottom: 0 }}>Glisse la pièce ou utilise les flèches du clavier pour la déplacer.</p>
-                </div>)}
+              <PiecesPanel ed={ed} title="Pièces" />
 
               <div className="panel">
                 <h3>Sondage</h3>
@@ -565,42 +695,112 @@
                   <button onClick={() => setShowAll(s => !s)}>{showAll ? 'Masquer' : 'Voir'} les 36 sondages</button>
                   {probe && <button onClick={() => setProbe(null)}>Effacer le rayon</button>}
                 </div>
-                {showAll && <AllProbes board={board} />}
+                {showAll && <ProbeTable rows={allRows} />}
               </div>
 
-              <div className="panel">
-                <h3>Débug</h3>
-                <div className="row">
-                  <button onClick={() => console.log('[orapa] plateau', JSON.stringify(snapshotJSON(pieces), null, 2))}>🐛 Logger le JSON</button>
-                  <button onClick={copyJSON}>{copied ? '✓ Copié' : '📋 Copier le JSON'}</button>
-                </div>
-                <label className="chip" style={{ marginTop: 8 }}>
-                  <input type="checkbox" checked={autoLog} onChange={e => setAutoLog(e.target.checked)} />
-                  Log auto à chaque changement
-                </label>
-                <p className="muted" style={{ marginBottom: 0 }}>Console : <kbd>__debug()</kbd> (objet) ou <kbd>__debugJSON()</kbd> (texte).</p>
-              </div>
-
-              <div className="panel">
-                <div className={'status ' + (legal.ok ? 'ok' : 'bad')}>{pieces.length === 0 ? 'Ajoute des pièces pour commencer.' : legal.msg}</div>
-                <div className="legend" style={{ marginTop: 10 }}>
-                  {Object.entries({ rouge: 'Rouge', jaune: 'Jaune', bleu: 'Bleu', blanc: 'Blanc', orange: 'Orange', violet: 'Violet', vert: 'Vert', noir: 'Noir', gris: 'Gris', rose: 'Rose', citron: 'Citron', 'bleu ciel': 'Bleu ciel', 'vert clair': 'Vert clair', 'violet clair': 'Violet clair', 'orange clair': 'Orange clair' }).map(([k, l]) =>
-                    <span className="chip" key={k}><span className="sw" style={{ width: 12, height: 12, background: HEX[k] }}></span>{l}</span>)}
-                </div>
-              </div>
+              <StatusPanel pieces={ed.pieces} legal={legal} />
+              <DebugPanel active={active} pieces={ed.pieces} board={board} probe={probe} />
             </div>
           </div>
         </div>
       );
     }
 
-    function AllProbes({ board }) {
-      const rows = [];
-      for (let r = 1; r <= 8; r++)for (const s of ['L', 'R']) { const b = fire2(board, s, r); rows.push([entLabel(s, r), exLabel(b.ex), b.col]); }
-      for (let c = 1; c <= 10; c++)for (const s of ['T', 'B']) { const b = fire2(board, s, c); rows.push([entLabel(s, c), exLabel(b.ex), b.col]); }
-      return <div className="tabwrap" style={{ marginTop: 8 }}><table><tbody>
-        {rows.map((r, i) => <tr key={i}><td>{r[0]}</td><td>→</td><td>{r[1]}</td><td><span className="sw" style={{ width: 11, height: 11, display: 'inline-block', background: HEX[r[2]] || '#334155', verticalAlign: 'middle' }}></span> {r[2]}</td></tr>)}
-      </tbody></table></div>;
+    // ---------- Mode SOLO (disposition cachée à deviner) ----------
+    function Solo({ active }) {
+      const ed = useEditor(active);
+      const [solution, setSolution] = useState(randomLayout);
+      const [asked, setAsked] = useState([]);
+      const [revealed, setRevealed] = useState(false);
+      const [verdict, setVerdict] = useState(null);
+
+      const solBoard = buildBoard(solution);
+      const legal = legalCheck(ed.pieces);
+
+      const newGame = () => { setSolution(randomLayout()); setAsked([]); setRevealed(false); setVerdict(null); ed.clear(); };
+
+      useEffect(() => { if (active) window.__solution = () => snapshotJSON(solution); }, [active, solution]);
+
+      const ask = (side, line) => {
+        if (asked.some(q => q.side === side && q.line === line)) return;
+        const b = fire2(solBoard, side, line);
+        setAsked([...asked, { side, line, entree: entLabel(side, line), sortie: exLabel(b.ex), ex: b.ex, couleur: b.col }]);
+      };
+
+      // un rond répondu prend la couleur du rayon, aux deux extrémités
+      const fills = {};
+      asked.forEach(q => {
+        const c = HEX[q.couleur] || '#9aa7bd';
+        fills[q.side + ',' + q.line] = c;
+        if (q.ex[0] !== 'LOOP') fills[q.ex[0] + ',' + q.ex[1]] = c;
+      });
+
+      const verify = () => {
+        if (ed.pieces.length !== ORDER.length) { setVerdict({ ok: false, msg: 'Place les 5 pièces avant de vérifier.' }); return; }
+        if (!legal.ok) { setVerdict({ ok: false, msg: legal.msg }); return; }
+        const mine = probeResults(ed.pieces), truth = probeResults(solution);
+        const diff = mine.filter((r, i) => r !== truth[i]).length;
+        setVerdict(diff === 0
+          ? { ok: true, msg: `Gagné ! Ta disposition donne les mêmes 36 sondages, en ${asked.length} question${asked.length > 1 ? 's' : ''}.` }
+          : { ok: false, msg: `Pas encore : ${diff} sondage${diff > 1 ? 's' : ''} sur 36 diffèrent de la disposition cachée.` });
+      };
+
+      return (
+        <div>
+          <p className="sub">Une disposition est cachée. Clique un rond du bord pour poser une question ;
+            la sortie et la couleur du rayon te répondent. Reconstitue la disposition avec tes 5 pièces, puis vérifie.</p>
+          <div className="layout">
+            <div className="boardwrap">
+              <BoardView pieces={ed.pieces} sel={ed.sel} beam={null} probe={null} ghost={revealed ? solution : null}
+                markerFill={(s, l) => fills[s + ',' + l]}
+                onSelect={ed.setSel}
+                onMovePiece={(i, anchor) => ed.update(i, { anchor })}
+                onMarker={ask} />
+            </div>
+
+            <div className="side">
+              <div className="panel">
+                <h3>Partie</h3>
+                <div className="row">
+                  <button onClick={newGame}>🎲 Nouvelle partie</button>
+                  <button onClick={verify}>✔ Vérifier</button>
+                  <button onClick={() => setRevealed(r => !r)}>{revealed ? '🙈 Masquer' : '👁 Révéler'} la solution</button>
+                </div>
+                {verdict && <div className={'status ' + (verdict.ok ? 'ok' : 'bad')} style={{ marginTop: 8 }}>{verdict.msg}</div>}
+              </div>
+
+              <div className="panel">
+                <h3>Questions posées ({asked.length})</h3>
+                {asked.length === 0
+                  ? <p className="muted" style={{ margin: 0 }}>Clique un rond sur le bord du plateau pour poser ta première question.</p>
+                  : <ProbeTable rows={asked.map(q => [q.entree, q.sortie, q.couleur])} />}
+              </div>
+
+              <PiecesPanel ed={ed} title="Tes hypothèses" />
+              <StatusPanel pieces={ed.pieces} legal={legal} />
+              <DebugPanel active={active} pieces={ed.pieces} board={buildBoard(ed.pieces)} probe={null}
+                hint={<> <kbd>__solution()</kbd> révèle la disposition cachée.</>}>
+                <button onClick={() => console.log('[orapa] solution', JSON.stringify(snapshotJSON(solution), null, 2))}>🕵 Logger la solution</button>
+              </DebugPanel>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    function App() {
+      const [mode, setMode] = useState('solo');
+      return (
+        <div>
+          <h1>ORAPA <span className="g">MINE</span></h1>
+          <div className="tabs">
+            <button className={'tab' + (mode === 'solo' ? ' active' : '')} onClick={() => setMode('solo')}>SOLO</button>
+            <button className={'tab' + (mode === 'validation' ? ' active' : '')} onClick={() => setMode('validation')}>VALIDATION</button>
+          </div>
+          <div style={{ display: mode === 'solo' ? 'block' : 'none' }}><Solo active={mode === 'solo'} /></div>
+          <div style={{ display: mode === 'validation' ? 'block' : 'none' }}><Validation active={mode === 'validation'} /></div>
+        </div>
+      );
     }
     ReactDOM.createRoot(document.getElementById('root')).render(<App />);
   </script>
