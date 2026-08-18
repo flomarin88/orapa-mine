@@ -260,6 +260,40 @@
       overflow: auto
     }
 
+    .tools {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-bottom: 8px
+    }
+
+    .tool.on {
+      background: var(--gold);
+      border-color: var(--gold);
+      color: #1a1206
+    }
+
+    .tool.on:hover {
+      background: var(--gold);
+      border-color: var(--gold)
+    }
+
+    .swbtn {
+      padding: 5px;
+      line-height: 0
+    }
+
+    .swbtn .sw {
+      display: block;
+      width: 18px;
+      height: 18px
+    }
+
+    .swbtn.on {
+      border-color: var(--gold);
+      box-shadow: 0 0 0 1px var(--gold)
+    }
+
     .txt {
       font: inherit;
       font-size: 12.5px;
@@ -424,6 +458,18 @@
 
     const DEFAULT_ANCHOR = { rouge: [0, 0], jaune: [8, 0], bleu: [0, 5], grandblanc: [5, 5], petitblanc: [4, 3] };
 
+    // ---------- Annotations (mode solo) ----------
+    const ANNOT_COLORS = [['rouge', '#dc2626'], ['jaune', '#eab308'], ['bleu', '#2563eb'], ['blanc', '#eef2f9']];
+    // triangle rectangle isocèle : l'angle droit occupe l'un des 4 coins de la case
+    const TRI = [
+      [[0, 0], [1, 0], [0, 1]],
+      [[1, 0], [1, 1], [0, 0]],
+      [[1, 1], [0, 1], [1, 0]],
+      [[0, 1], [0, 0], [1, 1]],
+    ];
+    const TRI_LABEL = ['\u25F8', '\u25F9', '\u25FF', '\u25FA'];
+    const GREY = '#64748b';
+
     // ---------- Debug JSON ----------
     function probeJSON(board, side, line) {
       const b = fire2(board, side, line);
@@ -545,7 +591,8 @@
     }
 
     // ---------- Plateau ----------
-    function BoardView({ pieces, sel, onSelect, onMovePiece, beam, probe, onMarker, markerFill, ghost }) {
+    function BoardView({ pieces, sel, onSelect, onMovePiece, beam, probe, onMarker, markerFill, ghost, annots, tool, onCell, onLine }) {
+      const drawing = !!tool && tool !== 'none';
       const svgRef = useRef(null);
       const drag = useRef(null);
 
@@ -587,6 +634,18 @@
             <text x={OX - 34} y={PX(0, i + 0.5)[1] + 4} textAnchor="middle" fontSize="11" fontFamily="monospace" fill="#9fb2cf">{LEFT[i]}</text>
             <text x={OX + COLS * CELL + 34} y={PX(0, i + 0.5)[1] + 4} textAnchor="middle" fontSize="11" fontFamily="monospace" fill="#9fb2cf">{10 + i + 1}</text></g>))}
 
+          {/* annotations */}
+          {annots && Object.keys(annots).map(k => {
+            const a = annots[k]; const [x, y] = k.split(',').map(Number); const [px, py] = PX(x, y);
+            const st = { pointerEvents: 'none' };
+            if (a.kind === 'grey') return <rect key={'an' + k} x={px} y={py} width={CELL} height={CELL} fill={GREY} fillOpacity="0.55" style={st} />;
+            if (a.kind === 'square') return <rect key={'an' + k} x={px + 4} y={py + 4} width={CELL - 8} height={CELL - 8} rx="3"
+              fill={a.color} fillOpacity="0.55" stroke={a.color} strokeWidth="1.5" strokeDasharray="4 3" style={st} />;
+            const pts = TRI[a.orient].map(([dx, dy]) => PX(x + dx, y + dy).join(',')).join(' ');
+            return <polygon key={'an' + k} points={pts} fill={a.color} fillOpacity="0.55" stroke={a.color} strokeWidth="1.5"
+              strokeDasharray="4 3" strokeLinejoin="round" style={st} />;
+          })}
+
           {/* beam */}
           {beam && beam.path.map((pt, i) => {
             if (i === beam.path.length - 1) return null; const a = PX(...pt), b = PX(...beam.path[i + 1]);
@@ -608,8 +667,24 @@
             const m = META[pc.name]; const selc = i === sel;
             return <polygon key={'pc' + i} points={pts} fill={m.fill} fillOpacity="0.96"
               stroke={selc ? '#e9c46a' : m.stroke} strokeWidth={selc ? 3 : 1.5} strokeLinejoin="round"
-              style={{ cursor: 'grab' }} onPointerDown={(e) => onDown(i, e)} />;
+              style={{ cursor: drawing ? 'crosshair' : 'grab', pointerEvents: drawing ? 'none' : 'auto' }}
+              onPointerDown={(e) => onDown(i, e)} />;
           })}
+
+          {/* zones de clic pour annoter */}
+          {drawing && Array.from({ length: COLS * ROWS }, (_, i) => {
+            const x = i % COLS, y = Math.floor(i / COLS); const [px, py] = PX(x, y);
+            return <rect key={'hit' + i} x={px} y={py} width={CELL} height={CELL} fill="transparent"
+              style={{ cursor: 'crosshair' }} onPointerDown={(e) => { e.stopPropagation(); onCell(x, y); }} />;
+          })}
+          {tool === 'grey' && Array.from({ length: ROWS }, (_, i) => (
+            <rect key={'hr' + i} x={OX - 47} y={PX(0, i)[1]} width={27} height={CELL} fill="transparent"
+              style={{ cursor: 'pointer' }} onPointerDown={(e) => { e.stopPropagation(); onLine('row', i); }}>
+              <title>{`Griser la ligne ${LEFT[i]}`}</title></rect>))}
+          {tool === 'grey' && Array.from({ length: COLS }, (_, i) => (
+            <rect key={'hc' + i} x={PX(i, 0)[0]} y={OY - 45} width={CELL} height={27} fill="transparent"
+              style={{ cursor: 'pointer' }} onPointerDown={(e) => { e.stopPropagation(); onLine('col', i); }}>
+              <title>{`Griser la colonne ${i + 1}`}</title></rect>))}
 
           {/* points de tir */}
           {markers.map(([side, line], i) => {
@@ -871,15 +946,54 @@
       const [revealed, setRevealed] = useState(false);
       const [verdict, setVerdict] = useState(null);
       const [saved, setSaved] = useState(null);
+      const [annots, setAnnots] = useState({});
+      const [tool, setTool] = useState('none');
+      const [annotColor, setAnnotColor] = useState(ANNOT_COLORS[0][1]);
+      const [triOrient, setTriOrient] = useState(0);
 
       const solBoard = buildBoard(solution);
       const legal = legalCheck(ed.pieces);
 
-      const start = (layout) => { setSolution(layout); setAsked([]); setRevealed(false); setVerdict(null); setSaved(null); ed.clear(); };
+      const start = (layout) => { setSolution(layout); setAsked([]); setRevealed(false); setVerdict(null); setSaved(null); setAnnots({}); ed.clear(); };
       const newGame = () => start(randomLayout());
 
       useEffect(() => { if (active) window.__solution = () => snapshotJSON(solution); }, [active, solution]);
       useEffect(() => { bridge.current.playSolo = (pieces) => start(pieces.map(p => ({ ...p }))); });
+
+      // --- annotations : une marque par case, reposer la même l'enlève ---
+      const same = (a, b) => a && b && a.kind === b.kind && a.color === b.color && a.orient === b.orient;
+      const mark = (key, a) => setAnnots(prev => {
+        const next = { ...prev };
+        if (!a || same(prev[key], a)) delete next[key]; else next[key] = a;
+        return next;
+      });
+      const onCell = (x, y) => {
+        const key = x + ',' + y;
+        if (tool === 'erase') mark(key, null);
+        else if (tool === 'grey') mark(key, { kind: 'grey' });
+        else if (tool === 'square') mark(key, { kind: 'square', color: annotColor });
+        else if (tool === 'tri') mark(key, { kind: 'tri', color: annotColor, orient: triOrient });
+      };
+      const onLine = (kind, i) => setAnnots(prev => {
+        const keys = kind === 'row'
+          ? Array.from({ length: COLS }, (_, x) => x + ',' + i)
+          : Array.from({ length: ROWS }, (_, y) => i + ',' + y);
+        const allGrey = keys.every(k => prev[k] && prev[k].kind === 'grey');
+        const next = { ...prev };
+        keys.forEach(k => { if (allGrey) delete next[k]; else next[k] = { kind: 'grey' }; });
+        return next;
+      });
+      const pick = (t) => { setTool(cur => cur === t ? 'none' : t); ed.setSel(null); };
+
+      useEffect(() => {
+        if (!active || tool !== 'tri') return;
+        const h = (e) => {
+          const t = e.target;
+          if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+          if (e.key === 'r' || e.key === 'R') { setTriOrient(o => (o + 1) % 4); e.preventDefault(); }
+        };
+        window.addEventListener('keydown', h); return () => window.removeEventListener('keydown', h);
+      }, [active, tool]);
 
       const saveGame = (won) => {
         setSaved({ pending: true });
@@ -927,7 +1041,8 @@
                 markerFill={(s, l) => fills[s + ',' + l]}
                 onSelect={ed.setSel}
                 onMovePiece={(i, anchor) => ed.update(i, { anchor })}
-                onMarker={ask} />
+                onMarker={ask}
+                annots={annots} tool={tool} onCell={onCell} onLine={onLine} />
             </div>
 
             <div className="side">
@@ -953,6 +1068,34 @@
                 {asked.length === 0
                   ? <p className="muted" style={{ margin: 0 }}>Clique un rond sur le bord du plateau pour poser ta première question.</p>
                   : <ProbeTable rows={asked.map(q => [q.entree, q.sortie, q.couleur])} />}
+              </div>
+
+              <div className="panel">
+                <h3>Annotations</h3>
+                <div className="tools">
+                  <button className={'tool' + (tool === 'grey' ? ' on' : '')} onClick={() => pick('grey')}>▦ Griser</button>
+                  <button className={'tool' + (tool === 'tri' ? ' on' : '')} onClick={() => pick('tri')}>{TRI_LABEL[triOrient]} Triangle</button>
+                  <button className={'tool' + (tool === 'square' ? ' on' : '')} onClick={() => pick('square')}>■ Carré</button>
+                  <button className={'tool' + (tool === 'erase' ? ' on' : '')} onClick={() => pick('erase')}>🧽 Gomme</button>
+                </div>
+                {(tool === 'tri' || tool === 'square') && <div className="tools">
+                  {ANNOT_COLORS.map(([n, c]) => <button key={n} className={'swbtn' + (annotColor === c ? ' on' : '')}
+                    title={n} aria-label={'Couleur ' + n} onClick={() => setAnnotColor(c)}>
+                    <span className="sw" style={{ background: c }}></span></button>)}
+                </div>}
+                {tool === 'tri' && <div className="tools">
+                  {TRI_LABEL.map((l, o) => <button key={o} className={'tool' + (triOrient === o ? ' on' : '')}
+                    aria-label={'Orientation ' + (o + 1)} onClick={() => setTriOrient(o)}>{l}</button>)}
+                </div>}
+                <p className="muted" style={{ margin: '4px 0 0' }}>
+                  {tool === 'none' ? 'Choisis un outil, puis clique une case du plateau.'
+                    : tool === 'grey' ? <>Clique une case, ou un libellé de ligne / colonne pour la griser en entier. Reclique pour annuler.</>
+                      : tool === 'erase' ? 'Clique une case annotée pour l’effacer.'
+                        : <>Clique une case pour poser la marque{tool === 'tri' ? <> — <kbd>R</kbd> la fait pivoter</> : null}. Reclique pour l’enlever.</>}
+                </p>
+                {Object.keys(annots).length > 0 && <div className="row" style={{ marginTop: 8 }}>
+                  <button onClick={() => setAnnots({})}>↺ Effacer les annotations ({Object.keys(annots).length})</button>
+                </div>}
               </div>
 
               <PiecesPanel ed={ed} title="Tes hypothèses" />
