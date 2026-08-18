@@ -810,7 +810,7 @@
     }
 
     // ---------- Mode ARCHIVES (parties et positionnements enregistrés) ----------
-    function Archives({ active, onLoad, onPlay }) {
+    function Archives({ active, onLoad, onPlay, onResume }) {
       const [games, setGames] = useState([]);
       const [layouts, setLayouts] = useState([]);
       const [err, setErr] = useState(null);
@@ -826,7 +826,8 @@
       return (
         <div>
           <p className="sub">Toutes tes parties solo et tes positionnements enregistrés.
-            Une ligne se recharge dans l'éditeur, ou se rejoue en solo comme disposition cachée.</p>
+            Une partie se reprend où tu l'avais laissée — questions, annotations et hypothèses — ou se rejoue
+            de zéro sur la même disposition cachée.</p>
 
           {err && <div className="panel"><div className="status bad">{err}</div></div>}
 
@@ -840,6 +841,7 @@
                   <td><b style={{ color: 'var(--gold)' }}>{g.score}</b> question{g.score > 1 ? 's' : ''}</td>
                   <td>{g.won ? '✓ trouvée' : '— non trouvée'}</td>
                   <td><div className="row">
+                    <button onClick={() => onResume(g)}>↩ Reprendre</button>
                     <button onClick={() => onLoad(g.solution)}>📂 Voir la solution</button>
                     <button onClick={() => onPlay(g.solution)}>🎲 Rejouer</button>
                     <button onClick={() => delGame(g.id)}>🗑</button>
@@ -958,7 +960,16 @@
       const newGame = () => start(randomLayout());
 
       useEffect(() => { if (active) window.__solution = () => snapshotJSON(solution); }, [active, solution]);
-      useEffect(() => { bridge.current.playSolo = (pieces) => start(pieces.map(p => ({ ...p }))); });
+      useEffect(() => {
+        bridge.current.playSolo = (pieces) => start(pieces.map(p => ({ ...p })));
+        bridge.current.resumeSolo = (g) => {
+          start(g.solution.map(p => ({ ...p })));
+          setAsked(g.questions || []);
+          setAnnots(g.annotations || {});
+          if (g.guess) ed.setPieces(g.guess.map(p => ({ ...p })));
+          setSaved({ id: g.id });
+        };
+      });
 
       // --- annotations : une marque par case, reposer la même l'enlève ---
       const same = (a, b) => a && b && a.kind === b.kind && a.color === b.color && a.orient === b.orient;
@@ -999,7 +1010,7 @@
         setSaved({ pending: true });
         api.saveGame({
           solution, guess: ed.pieces,
-          questions: asked.map(q => ({ entree: q.entree, sortie: q.sortie, couleur: q.couleur })),
+          questions: asked, annotations: annots,
           score: asked.length, won,
           signature: sig(solution),
           guessSignature: ed.pieces.length ? sig(ed.pieces) : null,
@@ -1016,8 +1027,8 @@
       const fills = {};
       asked.forEach(q => {
         const c = HEX[q.couleur] || '#9aa7bd';
-        fills[q.side + ',' + q.line] = c;
-        if (q.ex[0] !== 'LOOP') fills[q.ex[0] + ',' + q.ex[1]] = c;
+        if (q.side) fills[q.side + ',' + q.line] = c;
+        if (q.ex && q.ex[0] !== 'LOOP') fills[q.ex[0] + ',' + q.ex[1]] = c;
       });
 
       const verify = () => {
@@ -1115,6 +1126,7 @@
       const bridge = useRef({});
       const onLoad = (pieces) => { bridge.current.loadValidation(pieces); setMode('validation'); };
       const onPlay = (pieces) => { bridge.current.playSolo(pieces); setMode('solo'); };
+      const onResume = (game) => { bridge.current.resumeSolo(game); setMode('solo'); };
       const tab = (id, label) => <button className={'tab' + (mode === id ? ' active' : '')} onClick={() => setMode(id)}>{label}</button>;
       return (
         <div>
@@ -1122,7 +1134,7 @@
           <div className="tabs">{tab('solo', 'SOLO')}{tab('validation', 'VALIDATION')}{tab('archives', 'ARCHIVES')}</div>
           <div style={{ display: mode === 'solo' ? 'block' : 'none' }}><Solo active={mode === 'solo'} bridge={bridge} /></div>
           <div style={{ display: mode === 'validation' ? 'block' : 'none' }}><Validation active={mode === 'validation'} bridge={bridge} /></div>
-          <div style={{ display: mode === 'archives' ? 'block' : 'none' }}><Archives active={mode === 'archives'} onLoad={onLoad} onPlay={onPlay} /></div>
+          <div style={{ display: mode === 'archives' ? 'block' : 'none' }}><Archives active={mode === 'archives'} onLoad={onLoad} onPlay={onPlay} onResume={onResume} /></div>
         </div>
       );
     }

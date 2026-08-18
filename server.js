@@ -26,7 +26,8 @@ db.exec(`
     id          INTEGER PRIMARY KEY,
     solution_id INTEGER NOT NULL REFERENCES layouts(id) ON DELETE CASCADE,
     guess_id    INTEGER          REFERENCES layouts(id) ON DELETE SET NULL,
-    questions   TEXT NOT NULL,          -- JSON [{entree, sortie, couleur}]
+    questions   TEXT NOT NULL,          -- JSON [{entree, side, line, sortie, ex, couleur}]
+    annotations TEXT NOT NULL DEFAULT '{}',  -- JSON {"x,y": {kind, color, orient}}
     score       INTEGER NOT NULL,       -- nombre de questions posées
     won         INTEGER NOT NULL,
     created_at  TEXT NOT NULL
@@ -35,13 +36,19 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS layouts_signature ON layouts(signature);
 `);
 
+// migration des bases créées avant les annotations
+if (!db.prepare("SELECT name FROM pragma_table_info('games')").all().some(c => c.name === 'annotations')) {
+  db.exec("ALTER TABLE games ADD COLUMN annotations TEXT NOT NULL DEFAULT '{}'");
+  console.log('base migrée : colonne games.annotations ajoutée');
+}
+
 const insertLayout = db.prepare(
   'INSERT INTO layouts (name, source, pieces, signature, created_at) VALUES (?, ?, ?, ?, ?)');
 const selectLayouts = db.prepare(
   'SELECT * FROM layouts WHERE source = ? OR ? = \'\' ORDER BY id DESC');
 const deleteLayout = db.prepare('DELETE FROM layouts WHERE id = ?');
 const insertGame = db.prepare(
-  'INSERT INTO games (solution_id, guess_id, questions, score, won, created_at) VALUES (?, ?, ?, ?, ?, ?)');
+  'INSERT INTO games (solution_id, guess_id, questions, annotations, score, won, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)');
 const selectGames = db.prepare(`
   SELECT g.*, s.pieces AS solution_pieces, h.pieces AS guess_pieces
   FROM games g
@@ -59,6 +66,7 @@ const layoutRow = (r) => ({ ...r, pieces: JSON.parse(r.pieces) });
 const gameRow = (r) => ({
   id: r.id, score: r.score, won: !!r.won, created_at: r.created_at,
   questions: JSON.parse(r.questions),
+  annotations: JSON.parse(r.annotations || '{}'),
   solution: JSON.parse(r.solution_pieces),
   guess: r.guess_pieces ? JSON.parse(r.guess_pieces) : null,
 });
@@ -104,13 +112,13 @@ async function route(req, url) {
     return selectGames.all().map(gameRow);
   }
   if (req.method === 'POST' && p === '/api/games') {
-    const { solution, guess, questions = [], score = 0, won = false, signature, guessSignature } = await readJSON(req);
+    const { solution, guess, questions = [], annotations = {}, score = 0, won = false, signature, guessSignature } = await readJSON(req);
     const solutionId = saveLayout({ source: 'solo-solution', pieces: solution, signature });
     const guessId = guess && guess.length
       ? saveLayout({ source: 'solo-hypothese', pieces: guess, signature: guessSignature })
       : null;
     const { lastInsertRowid } = insertGame.run(
-      solutionId, guessId, JSON.stringify(questions), score, won ? 1 : 0, now());
+      solutionId, guessId, JSON.stringify(questions), JSON.stringify(annotations), score, won ? 1 : 0, now());
     const row = selectGame.get(Number(lastInsertRowid));
     return gameRow({ ...row, solution_pieces: JSON.stringify(solution), guess_pieces: guess ? JSON.stringify(guess) : null });
   }
