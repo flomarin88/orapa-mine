@@ -21,9 +21,10 @@ Variables d'environnement : `PORT` (3000 par défaut) et `ORAPA_DB` (chemin de l
   pose une question ; la sortie et la couleur du rayon s'affichent. Le score est le nombre de
   questions posées. On reconstitue la disposition avec les 5 pièces, puis « Vérifier » compare
   les 36 sondages. Une partie gagnée s'archive automatiquement.
-  Le plateau accepte des annotations pour raisonner : griser une case (ou une ligne / colonne
-  entière en cliquant son libellé), poser un triangle rectangle isocèle ou un carré, dans l'une
-  des quatre couleurs des pièces.
+  Un sélecteur au-dessus du plateau choisit ce qu'un clic y pose : des pièces, ou des annotations
+  pour raisonner — griser une case (ou une ligne / colonne entière en cliquant son libellé), poser
+  un triangle rectangle isocèle ou un carré, dans l'une des quatre couleurs des pièces. Les
+  questions se posent dans les deux cas.
 - **VALIDATION** — l'éditeur : placer, déplacer (glisser ou flèches), pivoter (`R`), retourner
   (`F`), tirer un rayon depuis n'importe quel bord, contrôler la légalité du placement, et
   enregistrer le positionnement sous un nom.

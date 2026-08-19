@@ -950,7 +950,8 @@
       const [verdict, setVerdict] = useState(null);
       const [saved, setSaved] = useState(null);
       const [annots, setAnnots] = useState({});
-      const [tool, setTool] = useState('none');
+      const [tool, setTool] = useState('grey');
+      const [boardMode, setBoardMode] = useState('pieces');   // pièces ou annotations, jamais les deux
       const [annotColor, setAnnotColor] = useState(ANNOT_COLORS[0][1]);
       const [triOrient, setTriOrient] = useState(0);
 
@@ -996,17 +997,19 @@
         keys.forEach(k => { if (allGrey) delete next[k]; else next[k] = { kind: 'grey' }; });
         return next;
       });
-      const pick = (t) => { setTool(cur => cur === t ? 'none' : t); ed.setSel(null); };
+      const pick = (t) => setTool(t);
+      const toBoardMode = (m) => { setBoardMode(m); ed.setSel(null); };
+      const activeTool = boardMode === 'annot' ? tool : 'none';
 
       useEffect(() => {
-        if (!active || tool !== 'tri') return;
+        if (!active || activeTool !== 'tri') return;
         const h = (e) => {
           const t = e.target;
           if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
           if (e.key === 'r' || e.key === 'R') { setTriOrient(o => (o + 1) % 4); e.preventDefault(); }
         };
         window.addEventListener('keydown', h); return () => window.removeEventListener('keydown', h);
-      }, [active, tool]);
+      }, [active, activeTool]);
 
       const saveGame = (won) => {
         setSaved({ pending: true });
@@ -1050,12 +1053,16 @@
             la sortie et la couleur du rayon te répondent. Reconstitue la disposition avec tes 5 pièces, puis vérifie.</p>
           <div className="layout">
             <div className="boardwrap">
+              <div className="tools" style={{ justifyContent: 'center' }}>
+                <button className={'tool' + (boardMode === 'pieces' ? ' on' : '')} onClick={() => toBoardMode('pieces')}>✋ Placer des pièces</button>
+                <button className={'tool' + (boardMode === 'annot' ? ' on' : '')} onClick={() => toBoardMode('annot')}>✎ Annoter</button>
+              </div>
               <BoardView pieces={ed.pieces} sel={ed.sel} beam={null} probe={null} ghost={revealed ? solution : null}
                 markerFill={(s, l) => fills[s + ',' + l]}
                 onSelect={ed.setSel}
                 onMovePiece={(i, anchor) => ed.update(i, { anchor })}
                 onMarker={ask}
-                annots={annots} tool={tool} onCell={onCell} onLine={onLine} />
+                annots={annots} tool={activeTool} onCell={onCell} onLine={onLine} />
             </div>
 
             <div className="side">
@@ -1083,7 +1090,7 @@
                   : <ProbeTable rows={asked.map(q => [q.entree, q.sortie, q.couleur])} />}
               </div>
 
-              <div className="panel">
+              {boardMode === 'annot' && <div className="panel">
                 <h3>Annotations</h3>
                 <div className="tools">
                   <button className={'tool' + (tool === 'grey' ? ' on' : '')} onClick={() => pick('grey')}>▦ Griser</button>
@@ -1101,17 +1108,16 @@
                     aria-label={'Orientation ' + (o + 1)} onClick={() => setTriOrient(o)}>{l}</button>)}
                 </div>}
                 <p className="muted" style={{ margin: '4px 0 0' }}>
-                  {tool === 'none' ? 'Choisis un outil, puis clique une case du plateau.'
-                    : tool === 'grey' ? <>Clique une case, ou un libellé de ligne / colonne pour la griser en entier. Reclique pour annuler.</>
+                  {tool === 'grey' ? <>Clique une case, ou un libellé de ligne / colonne pour la griser en entier. Reclique pour annuler.</>
                       : tool === 'erase' ? 'Clique une case annotée pour l’effacer.'
                         : <>Clique une case pour poser la marque{tool === 'tri' ? <> — <kbd>R</kbd> la fait pivoter</> : null}. Reclique pour l’enlever.</>}
                 </p>
                 {Object.keys(annots).length > 0 && <div className="row" style={{ marginTop: 8 }}>
                   <button onClick={() => setAnnots({})}>↺ Effacer les annotations ({Object.keys(annots).length})</button>
                 </div>}
-              </div>
+              </div>}
 
-              <PiecesPanel ed={ed} title="Tes hypothèses" />
+              {boardMode === 'pieces' && <PiecesPanel ed={ed} title="Tes hypothèses" />}
               <StatusPanel pieces={ed.pieces} legal={legal} />
               <DebugPanel active={active} pieces={ed.pieces} board={buildBoard(ed.pieces)} probe={null}
                 hint={<> <kbd>__solution()</kbd> révèle la disposition cachée.</>}>
