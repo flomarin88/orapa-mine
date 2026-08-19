@@ -454,7 +454,8 @@
     const HEX = { 'transparent': '#9aa7bd', 'rouge': '#dc2626', 'jaune': '#eab308', 'bleu': '#2563eb', 'blanc': '#f1f5f9', 'orange': '#f97316', 'violet': '#7c3aed', 'vert': '#16a34a', 'noir': '#0b1220', 'gris': '#64748b', 'rose': '#f472b6', 'citron': '#fde047', 'bleu ciel': '#7dd3fc', 'vert clair': '#86efac', 'violet clair': '#c4b5fd', 'orange clair': '#fdba74' };
     const FR = { red: 'rouge', yellow: 'jaune', blue: 'bleu', white: 'blanc' };
     const entLabel = (side, line) => side === 'L' ? LEFT[line - 1] : side === 'R' ? String(10 + line) : side === 'T' ? String(line) : BOT[line - 1];
-    const exLabel = (ex) => { const [s, i] = ex; if (s === 'L') return LEFT[i - 1]; if (s === 'R') return String(10 + i); if (s === 'T') return 'haut ' + i; if (s === 'B') return 'bas ' + BOT[i - 1]; if (s === 'LOOP') return 'rayon piégé'; return '—'; };
+    // sortie et entrée partagent la même notation : A-H, 11-18, 1-10, I-R
+    const exLabel = (ex) => { const [s, i] = ex; if (s === 'LOOP') return 'rayon piégé'; return entLabel(s, i) || '—'; };
 
     const DEFAULT_ANCHOR = { rouge: [0, 0], jaune: [8, 0], bleu: [0, 5], grandblanc: [5, 5], petitblanc: [4, 3] };
 
@@ -964,7 +965,8 @@
         bridge.current.playSolo = (pieces) => start(pieces.map(p => ({ ...p })));
         bridge.current.resumeSolo = (g) => {
           start(g.solution.map(p => ({ ...p })));
-          setAsked(g.questions || []);
+          // les parties archivées avant le changement de notation portent « haut 1 » / « bas R »
+          setAsked((g.questions || []).map(q => q.ex ? { ...q, sortie: exLabel(q.ex) } : q));
           setAnnots(g.annotations || {});
           if (g.guess) ed.setPieces(g.guess.map(p => ({ ...p })));
           setSaved({ id: g.id });

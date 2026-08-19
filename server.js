@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
-const PORT = Number(process.env.PORT) || 3000;
+const PORT = Number(process.env.PORT) || 4000;
 const DB_FILE = process.env.ORAPA_DB || join(ROOT, 'orapa.sqlite');
 
 const db = new DatabaseSync(DB_FILE);
