@@ -5,14 +5,14 @@
 ## Lancer
 
 ```sh
-npm start          # → http://localhost:3000
+npm start          # → http://localhost:4000
 ```
 
 Aucune dépendance à installer : le serveur utilise `node:sqlite`, intégré à Node ≥ 22.5
 (testé sur Node 24). La page a en revanche besoin d'un accès réseau, React étant chargé
 depuis un CDN.
 
-Variables d'environnement : `PORT` (3000 par défaut) et `ORAPA_DB` (chemin de la base,
+Variables d'environnement : `PORT` (4000 par défaut) et `ORAPA_DB` (chemin de la base,
 `orapa.sqlite` à côté du serveur par défaut).
 
 ## Les trois modes

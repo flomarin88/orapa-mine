@@ -538,7 +538,7 @@
           headers: body ? { 'content-type': 'application/json' } : undefined,
           body: body ? JSON.stringify(body) : undefined,
         });
-      } catch (e) { throw new Error('serveur injoignable — lance `npm start` puis ouvre http://localhost:3000'); }
+      } catch (e) { throw new Error('serveur injoignable — lance `npm start` puis ouvre http://localhost:4000'); }
       if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.error || `erreur ${res.status}`); }
       return res.status === 204 ? null : res.json();
     }
@@ -622,6 +622,16 @@
       };
       const markerOff = (side) => side === 'L' ? [-15, 0] : side === 'R' ? [15, 0] : side === 'T' ? [0, -15] : [0, 15];
 
+      const markerXY = (side, line) => {
+        const [mx, my] = markerPos(side, line); const [ox, oy] = markerOff(side);
+        return [mx + ox, my + oy];
+      };
+      const beamPts = beam && beam.path.map(pt => PX(...pt));
+      if (beamPts) {
+        if (probe) beamPts[0] = markerXY(probe.side, probe.line);
+        if (beam.ex[0] !== 'LOOP') beamPts[beamPts.length - 1] = markerXY(beam.ex[0], beam.ex[1]);
+      }
+
       return (
         <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} onPointerMove={onMove} onPointerUp={onUp} onPointerLeave={onUp}
           onPointerDown={() => onSelect(null)}>
@@ -648,12 +658,12 @@
           })}
 
           {/* beam */}
-          {beam && beam.path.map((pt, i) => {
-            if (i === beam.path.length - 1) return null; const a = PX(...pt), b = PX(...beam.path[i + 1]);
+          {beamPts && beamPts.map((a, i) => {
+            if (i === beamPts.length - 1) return null; const b = beamPts[i + 1];
             const col = HEX[beam.seg[i]] || '#9aa7bd'; const dash = beam.seg[i] === 'transparent';
             return <line key={'bm' + i} x1={a[0]} y1={a[1]} x2={b[0]} y2={b[1]} stroke={col} strokeWidth="4" strokeLinecap="round" strokeDasharray={dash ? '5 5' : '0'} opacity="0.95" />;
           })}
-          {beam && beam.path.slice(1, -1).map((pt, i) => { const a = PX(...pt); return <circle key={'bt' + i} cx={a[0]} cy={a[1]} r="3" fill="#fff" opacity="0.9" />; })}
+          {beamPts && beamPts.slice(1, -1).map((a, i) => <circle key={'bt' + i} cx={a[0]} cy={a[1]} r="3" fill="#fff" opacity="0.9" />)}
 
           {/* solution révélée */}
           {ghost && ghost.map((pc, i) => {
@@ -699,8 +709,8 @@
 
           {/* point de sortie */}
           {beam && beam.ex[0] !== 'LOOP' && (() => {
-            const e = PX(...beam.path[beam.path.length - 1]);
-            return <circle cx={e[0]} cy={e[1]} r="7" fill={HEX[beam.col] || '#fff'} stroke="#0b1220" strokeWidth="1.6" />;
+            const [ex, ey] = markerXY(beam.ex[0], beam.ex[1]);
+            return <circle cx={ex} cy={ey} r="7" fill={HEX[beam.col] || '#fff'} stroke="#0b1220" strokeWidth="1.6" />;
           })()}
         </svg>
       );
