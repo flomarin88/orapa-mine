@@ -59,6 +59,12 @@ Supprimer une partie supprime aussi les deux positions qui n'existaient que par 
 pour un duel et son hypothèse. Ré-enregistrer un duel remplace son hypothèse au lieu d'en
 empiler une nouvelle.
 
+## Documents
+
+- [Héberger sur GitHub Pages](docs/hebergement-github-pages.md) — proposition d'architecture
+  pour rendre l'app statique (stockage dans le navigateur), et pourquoi Vercel ne serait pas
+  plus simple. Pas encore implémentée.
+
 ## Débug
 
 Le panneau « Débug » de chaque mode logge le plateau et les 36 sondages en JSON (log auto,
