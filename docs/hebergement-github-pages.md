@@ -1,11 +1,12 @@
 # Héberger Orapa Mine sur GitHub Pages
 
-> **Statut : proposition.** L'architecture ci-dessous n'est pas encore implémentée.
-> Trois décisions restent à trancher — voir « Décisions à prendre ».
+> **Statut : fait.** Le stockage est passé dans le navigateur, `server.js` ne sert plus que la
+> page. Les trois décisions ouvertes ont été tranchées « au plus simple » — voir
+> « Décisions prises ».
 
 ## Le problème
 
-L'app est en deux morceaux :
+L'app était en deux morceaux :
 
 - `index.html` — le simulateur, le plateau, les quatre modes. 100 % navigateur.
 - `server.js` — le stockage : `/api/layouts`, `/api/games`, `/api/duels`, dans un fichier SQLite.
@@ -28,35 +29,36 @@ plusieurs appareils, il faut un vrai backend, et là Vercel + Turso devient le b
 
 ## 1. Ce qui bouge, ce qui ne bouge pas
 
-La couture est déjà au bon endroit : **10 méthodes dans un seul objet `api`, appelées depuis
-8 endroits, dans 3 composants** (`SaveLayoutPanel`, `Archives`, `Solo`, `Duel`). Tout le reste
+La couture était déjà au bon endroit : **10 méthodes dans un seul objet `api`, appelées depuis
+8 endroits, dans 4 composants** (`SaveLayoutPanel`, `Archives`, `Solo`, `Duel`). Tout le reste
 ignore d'où viennent les données.
 
 ```
-                      AUJOURD'HUI                          APRÈS
+                        AVANT                                APRÈS
   ┌──────────────────────────────┐        ┌──────────────────────────────┐
   │ Solo · Duel · Validation     │        │ Solo · Duel · Validation     │
   │ Archives · BoardView         │        │ Archives · BoardView         │
   │ useEditor · useAnnots        │        │ useEditor · useAnnots        │
   │ fire2 · buildBoard · sig     │        │ fire2 · buildBoard · sig     │
   ├──────────────────────────────┤        ├──────────────────────────────┤
-  │ api  (10 méthodes)           │ ◄──────┤ api  (10 méthodes, identique)│
-  ├──────────────────────────────┤ seam   ├──────────────────────────────┤
-  │ apiReq  →  fetch('/api/...') │        │ localStore  →  localStorage  │
+  │ api  (10 méthodes)           │ ◄──────┤ api  (mêmes 10, + export/import)
+  ├──────────────────────────────┤ couture├──────────────────────────────┤
+  │ apiReq  →  fetch('/api/...') │        │ readDB / writeDB  →  1 clé   │
   └──────────────┬───────────────┘        └──────────────────────────────┘
                  │ HTTP
-  ┌──────────────▼───────────────┐          server.js : plus nécessaire
-  │ server.js  ·  node:sqlite    │          (garde-le comme serveur de
-  │ layouts · games · duels      │           fichiers en local, ou pas)
+  ┌──────────────▼───────────────┐          server.js : 25 lignes, ne sert
+  │ server.js  ·  node:sqlite    │          plus que la page — GitHub Pages
+  │ layouts · games · duels      │          fait la même chose
   └──────────────────────────────┘
 ```
 
-Zéro ligne à toucher dans les composants. On remplace uniquement l'implémentation sous `api`.
+Zéro ligne touchée dans les composants : seule l'implémentation sous `api` a changé, plus
+`exportAll` / `importAll` ajoutées pour la sauvegarde (section 4).
 
 ## 2. Le contrat à respecter
 
-C'est la seule chose qui compte : la nouvelle implémentation doit rendre exactement les mêmes
-formes, sinon `Archives`, `Solo` et `Duel` cassent.
+C'est la seule chose qui comptait : la nouvelle implémentation devait rendre exactement les
+mêmes formes, sinon `Archives`, `Solo` et `Duel` cassaient.
 
 | méthode | rend |
 |---|---|
@@ -78,7 +80,7 @@ et `guess_id`, avec suppressions en cascade. **Mais le client n'a jamais vu ces 
 le serveur lui renvoie déjà `solution` et `guess` inlinés, et `api.layouts()` n'est appelé
 qu'avec `'validation'`.
 
-On peut donc aplatir — et les cascades disparaissent d'elles-mêmes :
+On a donc aplati — et les cascades disparaissent d'elles-mêmes :
 
 ```js
 localStorage['orapa.v1'] = {
@@ -95,7 +97,7 @@ volumétrie : une partie pèse environ 3 Ko, le quota est de ~5 Mo, soit largeme
 parties. `version` est là pour migrer plus tard sans rien perdre, comme le fait déjà
 `server.js` avec son `ALTER TABLE`.
 
-Effet de bord à assumer : **le fichier `orapa.sqlite` disparaît**, et avec lui l'inspection au
+Effet de bord assumé : **le fichier `orapa.sqlite` disparaît**, et avec lui l'inspection au
 `sqlite3`. C'est ce que remplace la section suivante.
 
 ## 4. Export / import JSON
@@ -105,48 +107,61 @@ Non négociable, pour deux raisons :
 1. C'est la seule sauvegarde. Un « effacer les données du site » dans le navigateur efface tout.
 2. C'est le seul moyen de passer un duel du téléphone au laptop.
 
-Un panneau dans ARCHIVES : *Exporter* télécharge le blob complet, *Importer* le relit et
-fusionne. C'est aussi ce qui remplace `sqlite3 orapa.sqlite` pour fouiller à la main.
+D'où le panneau **Sauvegarde** en tête d'ARCHIVES : *Exporter* télécharge tout dans un
+`orapa-AAAA-MM-JJ.json`, *Importer* le relit. Les entrées importées sont ré-identifiées et
+ajoutées, jamais écrasées — donc réimporter deux fois le même fichier crée des doublons, mais
+aucun import ne peut détruire ce qui est déjà là. C'est aussi ce qui remplace
+`sqlite3 orapa.sqlite` pour fouiller à la main.
 
-## 5. Décisions à prendre
+## 5. Décisions prises
 
-### a) Un backend, ou deux ?
+**a) Un seul backend.** `localStorage` partout ; `server.js` est retombé à 25 lignes qui ne
+font que servir `index.html`. Plus de `node:sqlite`, plus de routes `/api`. L'export JSON
+couvre le besoin d'inspection que remplissait `sqlite3 orapa.sqlite`.
 
-- **Un seul** — `localStorage` partout, `server.js` prend sa retraite. Un seul chemin de code,
-  mais adieu SQLite.
-- **Deux** — une sonde au démarrage : SQLite quand `npm start` répond, `localStorage` sinon.
-  Garde le confort de dev, au prix de deux implémentations à maintenir en phase.
+**b) CDN conservé.** React et Babel restent chargés depuis le CDN : zéro poids dans le dépôt,
+zéro étape de build. Contrepartie assumée : **la page a besoin du réseau au premier
+chargement**. En salle sans wifi fiable, ça compte — le jour où ça gêne, la porte de sortie est
+de vendoriser les trois fichiers dans `vendor/` (~3 Mo, Babel pèse lourd), ou de précompiler le
+JSX (~140 Ko, mais ça ajoute un build).
 
-*Penchant : un seul*, l'export JSON couvrant le besoin d'inspection.
+**c) Fichier unique.** Tout reste dans `index.html`.
 
-### b) React et Babel : CDN, figés, ou compilés ?
+### Ce que ça a donné
 
-| | poids | hors-ligne | build |
-|---|---|---|---|
-| CDN (actuel) | 0 | ✗ | aucun |
-| vendorisé dans le dépôt | ~3 Mo (Babel pèse lourd) | ✓ | aucun |
-| JSX précompilé | ~140 Ko | ✓ | `npx babel` avant commit |
+| | avant | après |
+|---|---|---|
+| `server.js` | 190 lignes, SQLite, 10 routes | 25 lignes, sert la page |
+| stockage | `orapa.sqlite` | `localStorage['orapa.v1']` |
+| composants | inchangés | inchangés |
+| `api` | `fetch('/api/…')` | lecture / écriture d'une clé |
 
-Le troisième donne le meilleur résultat mais casse le « ouvre `index.html`, ça marche » qui
-fait le charme du projet. Le deuxième est le compromis honnête : lourd au premier chargement,
-puis mis en cache.
+Un duel de 16 notes plus un positionnement pèsent 2,6 Ko dans le stockage — le quota de ~5 Mo
+laisse largement la place.
 
-À noter : en l'état, la page a besoin du réseau au premier chargement. En salle sans wifi
-fiable, ça compte.
+### Migration depuis l'ancienne base
 
-### c) Un seul fichier, ou un `vendor/` ?
+`scripts/sqlite-vers-json.mjs` convertit un `orapa.sqlite` existant en fichier importable :
 
-`index.html` fait déjà plus de 1160 lignes. Si on vendorise, autant en profiter pour sortir le
-script dans `app.jsx` — mais ça oblige à servir la page par HTTP (plus de double-clic sur le
-fichier).
+```sh
+node scripts/sqlite-vers-json.mjs orapa.sqlite orapa-export.json
+```
+
+puis ARCHIVES → 📂 Importer. Le script inline les positions référencées, comme le fait
+désormais le stockage. À refaire sur chaque origine où l'app est utilisée : `localhost:4000` et
+l'URL Pages ont chacune leur `localStorage`.
 
 ## 6. Déploiement
 
-Rien à installer. `index.html` est déjà à la racine, donc Pages en mode *deploy from branch →
-`master` → `/ (root)`* le sert tel quel sur `flomarin.github.io/orapa-mine/`.
+Rien à installer. `index.html` est à la racine, donc dans *Settings → Pages*, **Deploy from a
+branch → `master` → `/ (root)`** le sert tel quel sur `flomarin.github.io/orapa-mine/`.
 
-Le sous-chemin ne pose aucun problème une fois `/api` supprimé : plus une seule URL absolue
-dans le code. Pas d'Actions, pas de branche `gh-pages`, pas de config.
+Le sous-chemin ne pose aucun problème : plus une seule URL absolue dans le code depuis la
+suppression de `/api`. Pas d'Actions, pas de branche `gh-pages`, pas de config. Un `.nojekyll`
+à la racine évite au passage de faire passer le dépôt par Jekyll pour rien.
+
+À la première visite de l'URL Pages, les archives seront vides : c'est une origine neuve, donc
+un `localStorage` neuf. Exporter depuis `localhost` et importer là-bas.
 
 ## 7. Ce que ça coûte
 
@@ -154,8 +169,8 @@ dans le code. Pas d'Actions, pas de branche `gh-pages`, pas de config.
   laptop, sauf export / import manuel.
 - **Elles sont effaçables par le navigateur** — nettoyage de données de site, mode privé,
   réglages agressifs de rétention. D'où l'export.
-- **Plus de base SQLite** à ouvrir avec un outil tiers, si l'option (a) « un seul backend »
-  est retenue.
+- **Plus de base SQLite** à ouvrir avec un outil tiers. L'export JSON la remplace.
+- **Le réseau est requis au premier chargement** (React et Babel viennent du CDN).
 
 Si l'un de ces trois points devient bloquant, c'est le signal qu'il faut un vrai backend —
 et à ce moment-là, Vercel + Turso plutôt que Pages.

@@ -1,6 +1,7 @@
 # Orapa Mine
 
-Éditeur de disposition et mode solo, avec archivage des parties dans une base SQLite.
+Éditeur de disposition, mode solo et prise de notes en duel. Une page statique : tout le jeu
+tourne dans le navigateur, et les parties y sont archivées.
 
 ## Lancer
 
@@ -8,12 +9,12 @@
 npm start          # → http://localhost:4000
 ```
 
-Aucune dépendance à installer : le serveur utilise `node:sqlite`, intégré à Node ≥ 22.5
-(testé sur Node 24). La page a en revanche besoin d'un accès réseau, React étant chargé
-depuis un CDN.
+Aucune dépendance à installer, et rien à construire : `server.js` ne fait que servir
+`index.html`. `PORT` change le port (4000 par défaut).
 
-Variables d'environnement : `PORT` (4000 par défaut) et `ORAPA_DB` (chemin de la base,
-`orapa.sqlite` à côté du serveur par défaut).
+Le même fichier se publie tel quel sur GitHub Pages — voir
+[docs/hebergement-github-pages.md](docs/hebergement-github-pages.md). La page a besoin d'un
+accès réseau au premier chargement, React étant chargé depuis un CDN.
 
 ## Les quatre modes
 
@@ -39,31 +40,42 @@ Variables d'environnement : `PORT` (4000 par défaut) et `ORAPA_DB` (chemin de l
   où elle s'était arrêtée (questions, annotations, hypothèses), se rejoue de zéro sur la même
   disposition cachée, ou s'ouvre dans l'éditeur. Un duel se reprend de la même façon.
 
-## La base
+## Les données
 
-Un fichier SQLite classique, ouvrable avec n'importe quel outil (`sqlite3 orapa.sqlite`) :
+Tout vit dans le `localStorage` du navigateur, sous une seule clé `orapa.v1` :
 
-- `layouts` — un positionnement : `pieces` (JSON), `source` (`validation`, `solo-solution`,
-  `solo-hypothese`, `duel-hypothese`), `signature` (les 36 sondages, pour reconnaître une
-  position), `name`.
-- `games` — une partie solo : la solution et l'hypothèse (vers `layouts`), les `questions`
-  posées (JSON), les `annotations` du plateau (JSON `{"x,y": {kind, color, orient}}`), le
-  `score` et `won`.
-- `duels` — un duel : le `name` de l'adversaire, l'hypothèse (vers `layouts`), les `questions`
-  notées et les `annotations`, aux mêmes formats que pour une partie. `updated_at` bouge à
-  chaque sauvegarde automatique.
+```js
+{ version: 1, seq: 42,
+  layouts: [ {id, name, source:'validation', pieces, signature, created_at} ],
+  games:   [ {id, score, won, created_at, questions, annotations, solution, guess} ],
+  duels:   [ {id, name, created_at, updated_at, questions, annotations, guess} ] }
+```
 
-Une base créée avant les annotations est migrée au démarrage (`ALTER TABLE`), sans rien perdre.
+Les positions d'une partie ou d'un duel sont rangées avec eux (`solution`, `guess`) ; `layouts`
+ne garde que les positionnements enregistrés à la main en mode VALIDATION. Supprimer une partie
+emporte donc ses positions, sans cascade à gérer. `version` sert aux migrations futures.
 
-Supprimer une partie supprime aussi les deux positions qui n'existaient que par elle ; de même
-pour un duel et son hypothèse. Ré-enregistrer un duel remplace son hypothèse au lieu d'en
-empiler une nouvelle.
+**C'est la seule copie, et elle est locale.** Vider les données du site efface les parties, et
+rien ne suit vers un autre appareil — chaque origine (`localhost:4000`, l'URL Pages) a son
+stockage à elle. D'où le panneau **Sauvegarde** dans ARCHIVES : *Exporter* télécharge tout dans
+un `orapa-AAAA-MM-JJ.json`, *Importer* le relit. Les entrées importées sont ré-identifiées et
+ajoutées, jamais écrasées — réimporter deux fois le même fichier crée des doublons.
+
+### Venir d'une ancienne base SQLite
+
+Les versions précédentes stockaient les parties dans `orapa.sqlite` via un serveur Node. Pour
+récupérer ces données :
+
+```sh
+node scripts/sqlite-vers-json.mjs orapa.sqlite orapa-export.json
+```
+
+puis ARCHIVES → 📂 Importer, sur chaque origine où tu utilises l'app.
 
 ## Documents
 
-- [Héberger sur GitHub Pages](docs/hebergement-github-pages.md) — proposition d'architecture
-  pour rendre l'app statique (stockage dans le navigateur), et pourquoi Vercel ne serait pas
-  plus simple. Pas encore implémentée.
+- [Héberger sur GitHub Pages](docs/hebergement-github-pages.md) — pourquoi l'app est passée à
+  un stockage navigateur, ce que ça coûte, et comment publier.
 
 ## Débug
 

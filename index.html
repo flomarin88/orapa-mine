@@ -533,30 +533,99 @@
       return allProbesJSON(board).map(p => p.entree + '>' + p.sortie + ':' + p.couleur);
     }
 
-    // ---------- API (serveur Node + SQLite) ----------
-    async function apiReq(method, path, body) {
-      let res;
-      try {
-        res = await fetch('/api' + path, {
-          method,
-          headers: body ? { 'content-type': 'application/json' } : undefined,
-          body: body ? JSON.stringify(body) : undefined,
-        });
-      } catch (e) { throw new Error('serveur injoignable — lance `npm start` puis ouvre http://localhost:4000'); }
-      if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.error || `erreur ${res.status}`); }
-      return res.status === 204 ? null : res.json();
+    // ---------- Stockage (localStorage) ----------
+    // Pas de serveur : la page est un fichier statique, les parties vivent dans le navigateur.
+    // Une seule clé, relue et réécrite en entier à chaque mutation — une partie pèse ~3 Ko,
+    // le quota en tient largement un millier.
+    const STORE_KEY = 'orapa.v1';
+    const EMPTY_DB = { version: 1, seq: 0, layouts: [], games: [], duels: [] };
+
+    function readDB() {
+      let raw;
+      try { raw = localStorage.getItem(STORE_KEY); }
+      catch (e) { throw new Error('stockage du navigateur inaccessible — navigation privée ?'); }
+      if (!raw) return { ...EMPTY_DB };
+      try { return { ...EMPTY_DB, ...JSON.parse(raw) }; }
+      catch (e) { throw new Error('données illisibles dans le navigateur'); }
     }
+    function writeDB(db) {
+      try { localStorage.setItem(STORE_KEY, JSON.stringify(db)); }
+      catch (e) { throw new Error('enregistrement impossible — stockage plein ou refusé par le navigateur'); }
+    }
+    // relire, modifier, réécrire : aucun état en mémoire à resynchroniser
+    const mutate = (fn) => { const db = readDB(); const out = fn(db); writeDB(db); return out; };
+    const nextId = (db) => (db.seq = (db.seq || 0) + 1);
+    const nowISO = () => new Date().toISOString();
+    const copy = (v) => (v == null ? null : JSON.parse(JSON.stringify(v)));
+    const recent = (rows) => rows.slice().sort((a, b) => b.id - a.id);
+
+    // Les positions d'une partie ou d'un duel sont stockées avec eux plutôt que dans `layouts` :
+    // le serveur les inlinait déjà dans ses réponses, plus rien à faire en cascade.
     const api = {
-      layouts: (source) => apiReq('GET', '/layouts' + (source ? '?source=' + source : '')),
-      saveLayout: (l) => apiReq('POST', '/layouts', l),
-      delLayout: (id) => apiReq('DELETE', '/layouts/' + id),
-      games: () => apiReq('GET', '/games'),
-      saveGame: (g) => apiReq('POST', '/games', g),
-      delGame: (id) => apiReq('DELETE', '/games/' + id),
-      duels: () => apiReq('GET', '/duels'),
-      saveDuel: (d) => apiReq('POST', '/duels', d),
-      updateDuel: (id, d) => apiReq('PUT', '/duels/' + id, d),
-      delDuel: (id) => apiReq('DELETE', '/duels/' + id),
+      layouts: async (source) => recent(readDB().layouts.filter(l => !source || l.source === source)),
+      saveLayout: async ({ name = null, source = 'validation', pieces, signature }) => {
+        if (!pieces || !pieces.length) throw new Error('pieces manquantes');
+        return mutate(db => {
+          const row = { id: nextId(db), name, source, pieces: copy(pieces), signature: signature || '', created_at: nowISO() };
+          db.layouts.push(row);
+          return row;
+        });
+      },
+      delLayout: async (id) => mutate(db => { db.layouts = db.layouts.filter(l => l.id !== id); return null; }),
+
+      games: async () => recent(readDB().games),
+      saveGame: async ({ solution, guess, questions = [], annotations = {}, score = 0, won = false }) => {
+        if (!solution || !solution.length) throw new Error('solution manquante');
+        return mutate(db => {
+          const row = {
+            id: nextId(db), score, won: !!won, created_at: nowISO(),
+            questions: copy(questions), annotations: copy(annotations),
+            solution: copy(solution), guess: guess && guess.length ? copy(guess) : null,
+          };
+          db.games.push(row);
+          return row;
+        });
+      },
+      delGame: async (id) => mutate(db => { db.games = db.games.filter(g => g.id !== id); return null; }),
+
+      duels: async () => readDB().duels.slice()
+        .sort((a, b) => (a.updated_at < b.updated_at ? 1 : a.updated_at > b.updated_at ? -1 : b.id - a.id)),
+      saveDuel: async ({ name = null, guess, questions = [], annotations = {} }) => mutate(db => {
+        const t = nowISO();
+        const row = {
+          id: nextId(db), name, created_at: t, updated_at: t,
+          questions: copy(questions), annotations: copy(annotations),
+          guess: guess && guess.length ? copy(guess) : null,
+        };
+        db.duels.push(row);
+        return row;
+      }),
+      updateDuel: async (id, { name = null, guess, questions = [], annotations = {} }) => mutate(db => {
+        const row = db.duels.find(d => d.id === id);
+        if (!row) throw new Error('duel introuvable');
+        Object.assign(row, {
+          name, questions: copy(questions), annotations: copy(annotations),
+          guess: guess && guess.length ? copy(guess) : null, updated_at: nowISO(),
+        });
+        return row;
+      }),
+      delDuel: async (id) => mutate(db => { db.duels = db.duels.filter(d => d.id !== id); return null; }),
+
+      // --- sauvegarde : le navigateur peut être vidé, et rien ne suit d'un appareil à l'autre ---
+      exportAll: () => readDB(),
+      importAll: async (data) => mutate(db => {
+        if (!data || typeof data !== 'object') throw new Error('fichier illisible');
+        const added = { layouts: 0, games: 0, duels: 0 };
+        for (const kind of ['layouts', 'games', 'duels']) {
+          if (data[kind] !== undefined && !Array.isArray(data[kind])) throw new Error(`« ${kind} » n'est pas une liste`);
+          for (const row of data[kind] || []) {
+            db[kind].push({ ...row, id: nextId(db) });   // ré-identifié : rien n'est écrasé
+            added[kind]++;
+          }
+        }
+        if (!added.layouts && !added.games && !added.duels) throw new Error('rien à importer dans ce fichier');
+        return added;
+      }),
     };
     const sig = (pieces) => probeResults(pieces).join('|');
     const dateFR = (iso) => new Date(iso).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' });
@@ -914,6 +983,54 @@
       );
     }
 
+    // ---------- Sauvegarde (le navigateur est le seul dépôt) ----------
+    function BackupPanel({ onImported }) {
+      const file = useRef(null);
+      const [msg, setMsg] = useState(null);
+
+      const save = () => {
+        try {
+          const blob = new Blob([JSON.stringify(api.exportAll(), null, 2)], { type: 'application/json' });
+          const a = document.createElement('a');
+          a.href = URL.createObjectURL(blob);
+          a.download = 'orapa-' + nowISO().slice(0, 10) + '.json';
+          a.click();
+          setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+          setMsg({ ok: true, txt: 'Fichier téléchargé — range-le quelque part de sûr.' });
+        } catch (e) { setMsg({ ok: false, txt: e.message }); }
+      };
+
+      const load = (e) => {
+        const f = e.target.files && e.target.files[0];
+        e.target.value = '';                      // re-choisir le même fichier doit remarcher
+        if (!f) return;
+        setMsg(null);
+        f.text()
+          .then(txt => api.importAll(JSON.parse(txt)))
+          .then(n => {
+            setMsg({ ok: true, txt: `Importé : ${n.duels} duel${n.duels > 1 ? 's' : ''}, ${n.games} partie${n.games > 1 ? 's' : ''}, ${n.layouts} positionnement${n.layouts > 1 ? 's' : ''}.` });
+            onImported();
+          })
+          .catch(err => setMsg({ ok: false, txt: err instanceof SyntaxError ? 'ce fichier n’est pas un export Orapa' : err.message }));
+      };
+
+      return (
+        <div className="panel" style={{ marginBottom: 12 }}>
+          <h3>Sauvegarde</h3>
+          <p className="muted" style={{ margin: '0 0 8px' }}>
+            Tout est stocké dans ce navigateur, sur cet appareil : vider les données du site efface
+            les parties, et rien ne suit vers un autre appareil. L’export est la seule copie.
+          </p>
+          <div className="row">
+            <button onClick={save}>💾 Exporter (JSON)</button>
+            <button onClick={() => file.current.click()}>📂 Importer</button>
+            <input ref={file} type="file" accept="application/json,.json" style={{ display: 'none' }} onChange={load} />
+          </div>
+          {msg && <div className={'status ' + (msg.ok ? 'ok' : 'bad')} style={{ marginTop: 8 }}>{msg.txt}</div>}
+        </div>
+      );
+    }
+
     // ---------- Mode ARCHIVES (parties et positionnements enregistrés) ----------
     function Archives({ active, onLoad, onPlay, onResume, onResumeDuel }) {
       const [games, setGames] = useState([]);
@@ -937,6 +1054,8 @@
             de zéro sur la même disposition cachée.</p>
 
           {err && <div className="panel"><div className="status bad">{err}</div></div>}
+
+          <BackupPanel onImported={reload} />
 
           <div className="panel" style={{ marginBottom: 12 }}>
             <h3>Parties solo ({games.length})</h3>
@@ -1104,8 +1223,6 @@
           solution, guess: ed.pieces,
           questions: asked, annotations: an.annots,
           score: asked.length, won,
-          signature: sig(solution),
-          guessSignature: ed.pieces.length ? sig(ed.pieces) : null,
         }).then(g => setSaved({ id: g.id })).catch(e => setSaved({ error: e.message }));
       };
 
@@ -1255,7 +1372,6 @@
         questions: asked,
         annotations: an.annots,
         guess: ed.pieces,
-        guessSignature: ed.pieces.length && legal.ok ? sig(ed.pieces) : null,
       });
       const push = () => {
         const body = payload();
