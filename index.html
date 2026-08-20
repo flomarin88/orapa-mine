@@ -339,9 +339,12 @@
       rouge: [[1, 0], [3, 0], [2, 1], [0, 1]],
       petitblanc: [[1, 0], [2, 1], [1, 2], [0, 1]],
       transparent: [[0, 0], [1, 0], [0, 1]],
+      noir: [[0, 0], [1, 0], [0, 1]],
     };
-    // `null` = matière transparente : elle dévie le rayon sans teinter sa couleur
-    const MAT = { rouge: 'red', jaune: 'yellow', bleu: 'blue', grandblanc: 'white', petitblanc: 'white', transparent: null };
+    // `null` = matière sans teinte : elle ne colore pas le rayon qui la touche
+    const MAT = { rouge: 'red', jaune: 'yellow', bleu: 'blue', grandblanc: 'white', petitblanc: 'white', transparent: null, noir: null };
+    // pièces qui avalent le rayon : il entre, rien n'en ressort
+    const ABSORBS = new Set(['noir']);
     const META = {
       rouge: { label: 'Rouge', fill: '#dc2626', stroke: 'rgba(255,255,255,.55)' },
       jaune: { label: 'Jaune', fill: '#eab308', stroke: 'rgba(255,255,255,.55)' },
@@ -349,8 +352,9 @@
       grandblanc: { label: 'Grand blanc', fill: '#eef2f9', stroke: '#334155' },
       petitblanc: { label: 'Petit blanc', fill: '#eef2f9', stroke: '#334155' },
       transparent: { label: 'Transparent', fill: '#bfdbfe', stroke: '#7dd3fc', opacity: 0.32 },
+      noir: { label: 'Noir', fill: '#0b1220', stroke: '#94a3b8' },
     };
-    const ORDER = ['rouge', 'jaune', 'bleu', 'grandblanc', 'petitblanc', 'transparent'];
+    const ORDER = ['rouge', 'jaune', 'bleu', 'grandblanc', 'petitblanc', 'transparent', 'noir'];
     function transform(poly, rot, flip) {
       let pts = poly.map(([x, y]) => [x, y]);
       if (flip) pts = pts.map(([x, y]) => [-x, y]);
@@ -395,14 +399,14 @@
       return { faces, solids };
     }
     function buildBoard(pieces) {
-      const faces = {}, solid = new Map(), mat = [], polys = [], cellsOf = [];
+      const faces = {}, solid = new Map(), mat = [], absorbs = [], polys = [], cellsOf = [];
       pieces.forEach((pc, idx) => {
-        const poly = placedPoly(pc); polys.push(poly); mat.push(MAT[pc.name]);
+        const poly = placedPoly(pc); polys.push(poly); mat.push(MAT[pc.name]); absorbs.push(ABSORBS.has(pc.name));
         const { faces: f, solids: s } = rasterize(poly); const cells = new Set();
         for (const k in f) { faces[k] = [f[k].orient, idx, f[k].filled]; cells.add(k); }
         s.forEach(k => { solid.set(k, idx); cells.add(k); }); cellsOf.push(cells);
       });
-      return { faces, solid, mat, polys, cellsOf };
+      return { faces, solid, mat, absorbs, polys, cellsOf };
     }
     function legalCheck(pieces) {
       const polys = pieces.map(placedPoly);
@@ -434,18 +438,18 @@
       let path = [entry], colors = [], seg = [];
       for (let step = 0; step < maxsteps; step++) {
         const key = cx + ',' + cy;
-        if (board.faces[key]) {
-          seg.push(mixname(colors)); const [orient, idx, filled] = board.faces[key]; const c = board.mat[idx];
+        const face = board.faces[key];
+        const idx = face ? face[1] : board.solid.get(key);
+        if (idx !== undefined) {
+          seg.push(mixname(colors)); path.push([cx + 0.5, cy + 0.5]);
+          // une pièce noire avale le rayon : pas de sortie, et donc aucune couleur annoncée
+          if (board.absorbs[idx]) return { ex: ['ABSORB', 0], col: null, path, colors, seg };
+          const c = board.mat[idx];
           if (c && !colors.includes(c)) colors.push(c);
-          // entrer du côté plein, c'est buter sur un flanc plat : demi-tour, comme sur une case pleine.
-          // Sinon le rayon atteint l'arête en biais et s'y réfléchit.
-          d = filled.includes(ENTRY[d]) ? REV[d] : REFL[orient][d];
-          path.push([cx + 0.5, cy + 0.5]);
-        }
-        else if (board.solid.has(key)) {
-          // base plate : demi-tour à 180°, le rayon prend la couleur de la pièce
-          seg.push(mixname(colors)); const c = board.mat[board.solid.get(key)];
-          if (c && !colors.includes(c)) colors.push(c); d = REV[d]; path.push([cx + 0.5, cy + 0.5]);
+          // Sur une arête : entrer du côté plein, c'est buter sur un flanc plat, donc demi-tour ;
+          // sinon le rayon l'atteint en biais et s'y réfléchit. Une case pleine (base plate)
+          // renvoie toujours à 180°.
+          d = face ? (face[2].includes(ENTRY[d]) ? REV[d] : REFL[face[0]][d]) : REV[d];
         }
         const [dx, dy] = DIRV[d]; const ncx = cx + dx, ncy = cy + dy;
         if (!(ncx >= 0 && ncx <= 9 && ncy >= 0 && ncy <= 7)) {
@@ -469,9 +473,16 @@
     const FR = { red: 'rouge', yellow: 'jaune', blue: 'bleu', white: 'blanc' };
     const entLabel = (side, line) => side === 'L' ? LEFT[line - 1] : side === 'R' ? String(10 + line) : side === 'T' ? String(line) : BOT[line - 1];
     // sortie et entrée partagent la même notation : A-H, 11-18, 1-10, I-R
-    const exLabel = (ex) => { const [s, i] = ex; if (s === 'LOOP') return 'rayon piégé'; return entLabel(s, i) || '—'; };
+    const exLabel = (ex) => {
+      const [s, i] = ex;
+      if (s === 'LOOP') return 'rayon piégé';
+      if (s === 'ABSORB') return 'rayon absorbé';
+      return entLabel(s, i) || '—';
+    };
+    // piégé ou absorbé, le rayon ne ressort par aucun rond du bord
+    const hasExit = (ex) => ex[0] !== 'LOOP' && ex[0] !== 'ABSORB';
 
-    const DEFAULT_ANCHOR = { rouge: [0, 0], jaune: [8, 0], bleu: [0, 5], grandblanc: [5, 5], petitblanc: [4, 3], transparent: [0, 3] };
+    const DEFAULT_ANCHOR = { rouge: [0, 0], jaune: [8, 0], bleu: [0, 5], grandblanc: [5, 5], petitblanc: [4, 3], transparent: [0, 3], noir: [9, 3] };
 
     // ---------- Annotations (mode solo) ----------
     const ANNOT_COLORS = [['rouge', '#dc2626'], ['jaune', '#eab308'], ['bleu', '#2563eb'], ['blanc', '#eef2f9']];
@@ -544,7 +555,7 @@
     }
     function probeResults(pieces) {
       const board = buildBoard(pieces);
-      return allProbesJSON(board).map(p => p.entree + '>' + p.sortie + ':' + p.couleur);
+      return allProbesJSON(board).map(p => p.entree + '>' + p.sortie + ':' + (p.couleur ?? '—'));
     }
 
     // ---------- Stockage (localStorage) ----------
@@ -806,7 +817,7 @@
       const beamPts = beam && beam.path.map(pt => PX(...pt));
       if (beamPts) {
         if (probe) beamPts[0] = markerXY(probe.side, probe.line);
-        if (beam.ex[0] !== 'LOOP') beamPts[beamPts.length - 1] = markerXY(beam.ex[0], beam.ex[1]);
+        if (hasExit(beam.ex)) beamPts[beamPts.length - 1] = markerXY(beam.ex[0], beam.ex[1]);
       }
 
       return (
@@ -885,9 +896,15 @@
           })}
 
           {/* point de sortie */}
-          {beam && beam.ex[0] !== 'LOOP' && (() => {
+          {beam && hasExit(beam.ex) && (() => {
             const [ex, ey] = markerXY(beam.ex[0], beam.ex[1]);
             return <circle cx={ex} cy={ey} r="7" fill={HEX[beam.col] || '#fff'} stroke="#0b1220" strokeWidth="1.6" />;
+          })()}
+
+          {/* rayon avalé : il s'arrête net sur la pièce noire */}
+          {beam && beam.ex[0] === 'ABSORB' && (() => {
+            const [ax, ay] = beamPts[beamPts.length - 1];
+            return <circle cx={ax} cy={ay} r="6" fill="#0b1220" stroke="#94a3b8" strokeWidth="1.6" />;
           })()}
         </svg>
       );
@@ -1132,7 +1149,7 @@
     function ProbeTable({ rows }) {
       return <div className="tabwrap" style={{ marginTop: 8 }}><table><tbody>
         {rows.map((r, i) => <tr key={i}><td>{r[0]}</td><td>→</td><td>{r[1]}</td><td>
-          <span className="sw" style={{ width: 11, height: 11, display: 'inline-block', background: HEX[r[2]] || '#334155', verticalAlign: 'middle' }}></span> {r[2]}</td></tr>)}
+          <span className="sw" style={{ width: 11, height: 11, display: 'inline-block', background: HEX[r[2]] || '#334155', verticalAlign: 'middle' }}></span> {r[2] ?? '—'}</td></tr>)}
       </tbody></table></div>;
     }
 
@@ -1177,8 +1194,11 @@
                   <div className="result">
                     <b>{entLabel(probe.side, probe.line)}</b> →
                     <b>{exLabel(beam.ex)}</b>
-                    <span className="bigsw" style={{ background: HEX[beam.col] || '#334155' }}></span>
-                    <b style={{ color: '#e9c46a' }}>{beam.col}</b>
+                    {/* un rayon absorbé n'annonce aucune couleur : pas de pastille à montrer */}
+                    {beam.col && <>
+                      <span className="bigsw" style={{ background: HEX[beam.col] || '#334155' }}></span>
+                      <b style={{ color: '#e9c46a' }}>{beam.col}</b>
+                    </>}
                     {beam.colors.length > 0 && <span className="muted">(touche&nbsp;: {beam.colors.map(c => FR[c] || c).join(' + ')})</span>}
                   </div>
                 ) : <p className="muted" style={{ margin: 0 }}>Clique un rond sur le bord du plateau pour envoyer une onde.</p>}
@@ -1251,7 +1271,7 @@
       asked.forEach(q => {
         const c = HEX[q.couleur] || '#9aa7bd';
         if (q.side) fills[q.side + ',' + q.line] = c;
-        if (q.ex && q.ex[0] !== 'LOOP') fills[q.ex[0] + ',' + q.ex[1]] = c;
+        if (q.ex && hasExit(q.ex)) fills[q.ex[0] + ',' + q.ex[1]] = c;
       });
 
       const verify = () => {
@@ -1340,15 +1360,18 @@
       // --- saisie d'une question : départ → arrivée → couleur ---
       const onMarker = (side, line) => setDraft(d => d ? { ...d, ex: [side, line] } : { side, line });
       const trapped = () => setDraft(d => d && { ...d, ex: ['LOOP', 0] });
-      const answer = (couleur) => {
-        if (!draft || !draft.ex) return;
-        const { side, line, ex } = draft;
+      const record = (ex, couleur) => {
+        if (!draft) return;
+        const { side, line } = draft;
         const note = { side, line, entree: entLabel(side, line), sortie: exLabel(ex), ex, couleur };
         // re-noter un départ déjà noté corrige la note au lieu de la doubler
         setAsked(prev => [...prev.filter(q => !(q.side === side && q.line === line)), note]);
         setDraft(null);
         setConflict(null);
       };
+      const answer = (couleur) => { if (draft && draft.ex) record(draft.ex, couleur); };
+      // avalé par une pièce noire : ni sortie ni couleur, la note est complète d'un seul clic
+      const absorbed = () => record(['ABSORB', 0], null);
       const forget = (i) => { setAsked(prev => prev.filter((_, k) => k !== i)); setConflict(null); };
 
       // un rond noté prend la couleur du rayon, aux deux extrémités ; la question en cours est en or
@@ -1356,11 +1379,11 @@
       asked.forEach(q => {
         const c = HEX[q.couleur] || '#9aa7bd';
         fills[q.side + ',' + q.line] = c;
-        if (q.ex && q.ex[0] !== 'LOOP') fills[q.ex[0] + ',' + q.ex[1]] = c;
+        if (q.ex && hasExit(q.ex)) fills[q.ex[0] + ',' + q.ex[1]] = c;
       });
       if (draft) {
         fills[draft.side + ',' + draft.line] = '#e9c46a';
-        if (draft.ex && draft.ex[0] !== 'LOOP') fills[draft.ex[0] + ',' + draft.ex[1]] = '#e9c46a';
+        if (draft.ex && hasExit(draft.ex)) fills[draft.ex[0] + ',' + draft.ex[1]] = '#e9c46a';
       }
 
       // --- confronter l'hypothèse aux notes ---
@@ -1423,7 +1446,7 @@
       const step = !draft ? 'depart' : !draft.ex ? 'arrivee' : 'couleur';
       const stepText = {
         depart: 'Clique le rond d’où part le rayon.',
-        arrivee: 'Clique le rond par lequel il ressort — ou dis qu’il est piégé.',
+        arrivee: 'Clique le rond par lequel il ressort — ou dis qu’il est piégé ou absorbé.',
         couleur: 'Choisis la couleur annoncée par ton adversaire.',
       }[step];
 
@@ -1454,6 +1477,7 @@
                 <p className="muted" style={{ margin: '6px 0 0' }}>{stepText}</p>
                 {step === 'arrivee' && <div className="row" style={{ marginTop: 8 }}>
                   <button onClick={trapped}>🌀 Rayon piégé</button>
+                  <button onClick={absorbed}>⚫ Rayon absorbé</button>
                 </div>}
                 {step === 'couleur' && <div className="tools" style={{ marginTop: 8, marginBottom: 0 }}>
                   {ANSWER_COLORS.map(c => <button key={c} className="tool" onClick={() => answer(c)}
@@ -1472,7 +1496,7 @@
                   : <div className="tabwrap"><table><tbody>
                     {asked.map((q, i) => <tr key={q.side + q.line}>
                       <td>{q.entree}</td><td>→</td><td>{q.sortie}</td>
-                      <td><span className="sw" style={{ width: 11, height: 11, display: 'inline-block', background: HEX[q.couleur] || '#334155', verticalAlign: 'middle' }}></span> {q.couleur}</td>
+                      <td><span className="sw" style={{ width: 11, height: 11, display: 'inline-block', background: HEX[q.couleur] || '#334155', verticalAlign: 'middle' }}></span> {q.couleur ?? '—'}</td>
                       <td style={{ width: 1 }}><button style={{ padding: '1px 5px', fontSize: 11 }}
                         title="Oublier cette note" onClick={() => forget(i)}>🗑</button></td>
                     </tr>)}
@@ -1491,8 +1515,8 @@
                 {conflict && conflict.rows && <div className="tabwrap" style={{ marginTop: 8 }}><table><tbody>
                   <tr><td colSpan="2">noté</td><td colSpan="2">ton hypothèse</td></tr>
                   {conflict.rows.map((r, i) => <tr key={i}>
-                    <td>{r.q.entree} → {r.q.sortie}</td><td>{r.q.couleur}</td>
-                    <td>{r.q.entree} → {r.sortie}</td><td>{r.couleur}</td>
+                    <td>{r.q.entree} → {r.q.sortie}</td><td>{r.q.couleur ?? '—'}</td>
+                    <td>{r.q.entree} → {r.sortie}</td><td>{r.couleur ?? '—'}</td>
                   </tr>)}
                 </tbody></table></div>}
               </div>
