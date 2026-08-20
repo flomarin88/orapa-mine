@@ -471,6 +471,10 @@
     const TRI_LABEL = ['\u25F8', '\u25F9', '\u25FF', '\u25FA'];
     const GREY = '#64748b';
 
+    // ---------- Duel : ce qu'un adversaire peut annoncer comme couleur ----------
+    const ANSWER_COLORS = ['transparent', 'rouge', 'jaune', 'bleu', 'blanc', 'orange', 'violet', 'vert',
+      'noir', 'gris', 'rose', 'citron', 'bleu ciel', 'vert clair', 'violet clair', 'orange clair'];
+
     // ---------- Debug JSON ----------
     function probeJSON(board, side, line) {
       const b = fire2(board, side, line);
@@ -549,6 +553,10 @@
       games: () => apiReq('GET', '/games'),
       saveGame: (g) => apiReq('POST', '/games', g),
       delGame: (id) => apiReq('DELETE', '/games/' + id),
+      duels: () => apiReq('GET', '/duels'),
+      saveDuel: (d) => apiReq('POST', '/duels', d),
+      updateDuel: (id, d) => apiReq('PUT', '/duels/' + id, d),
+      delDuel: (id) => apiReq('DELETE', '/duels/' + id),
     };
     const sig = (pieces) => probeResults(pieces).join('|');
     const dateFR = (iso) => new Date(iso).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' });
@@ -589,6 +597,92 @@
       }, [active, sel, pieces]);
 
       return { pieces, setPieces, sel, setSel, update, addPiece, del, rotate, flip, clear };
+    }
+
+    // ---------- Annotations du plateau (partagées par SOLO et DUEL) ----------
+    function useAnnots() {
+      const [annots, setAnnots] = useState({});
+      const [tool, setTool] = useState('grey');
+      const [color, setColor] = useState(ANNOT_COLORS[0][1]);
+      const [orient, setOrient] = useState(0);
+
+      // une marque par case, reposer la même l'enlève
+      const same = (a, b) => a && b && a.kind === b.kind && a.color === b.color && a.orient === b.orient;
+      const mark = (key, a) => setAnnots(prev => {
+        const next = { ...prev };
+        if (!a || same(prev[key], a)) delete next[key]; else next[key] = a;
+        return next;
+      });
+      const onCell = (x, y) => {
+        const key = x + ',' + y;
+        if (tool === 'erase') mark(key, null);
+        else if (tool === 'grey') mark(key, { kind: 'grey' });
+        else if (tool === 'square') mark(key, { kind: 'square', color });
+        else if (tool === 'tri') mark(key, { kind: 'tri', color, orient });
+      };
+      const onLine = (kind, i) => setAnnots(prev => {
+        const keys = kind === 'row'
+          ? Array.from({ length: COLS }, (_, x) => x + ',' + i)
+          : Array.from({ length: ROWS }, (_, y) => i + ',' + y);
+        const allGrey = keys.every(k => prev[k] && prev[k].kind === 'grey');
+        const next = { ...prev };
+        keys.forEach(k => { if (allGrey) delete next[k]; else next[k] = { kind: 'grey' }; });
+        return next;
+      });
+
+      return { annots, setAnnots, tool, setTool, color, setColor, orient, setOrient, onCell, onLine };
+    }
+
+    function AnnotPanel({ an, active }) {
+      const { tool, color, orient } = an;
+      useEffect(() => {
+        if (!active || tool !== 'tri') return;
+        const h = (e) => {
+          const t = e.target;
+          if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+          if (e.key === 'r' || e.key === 'R') { an.setOrient(o => (o + 1) % 4); e.preventDefault(); }
+        };
+        window.addEventListener('keydown', h); return () => window.removeEventListener('keydown', h);
+      }, [active, tool]);
+
+      return (
+        <div className="panel">
+          <h3>Annotations</h3>
+          <div className="tools">
+            <button className={'tool' + (tool === 'grey' ? ' on' : '')} onClick={() => an.setTool('grey')}>▦ Griser</button>
+            <button className={'tool' + (tool === 'tri' ? ' on' : '')} onClick={() => an.setTool('tri')}>{TRI_LABEL[orient]} Triangle</button>
+            <button className={'tool' + (tool === 'square' ? ' on' : '')} onClick={() => an.setTool('square')}>■ Carré</button>
+            <button className={'tool' + (tool === 'erase' ? ' on' : '')} onClick={() => an.setTool('erase')}>🧽 Gomme</button>
+          </div>
+          {(tool === 'tri' || tool === 'square') && <div className="tools">
+            {ANNOT_COLORS.map(([n, c]) => <button key={n} className={'swbtn' + (color === c ? ' on' : '')}
+              title={n} aria-label={'Couleur ' + n} onClick={() => an.setColor(c)}>
+              <span className="sw" style={{ background: c }}></span></button>)}
+          </div>}
+          {tool === 'tri' && <div className="tools">
+            {TRI_LABEL.map((l, o) => <button key={o} className={'tool' + (orient === o ? ' on' : '')}
+              aria-label={'Orientation ' + (o + 1)} onClick={() => an.setOrient(o)}>{l}</button>)}
+          </div>}
+          <p className="muted" style={{ margin: '4px 0 0' }}>
+            {tool === 'grey' ? <>Clique une case, ou un libellé de ligne / colonne pour la griser en entier. Reclique pour annuler.</>
+              : tool === 'erase' ? 'Clique une case annotée pour l’effacer.'
+                : <>Clique une case pour poser la marque{tool === 'tri' ? <> — <kbd>R</kbd> la fait pivoter</> : null}. Reclique pour l’enlever.</>}
+          </p>
+          {Object.keys(an.annots).length > 0 && <div className="row" style={{ marginTop: 8 }}>
+            <button onClick={() => an.setAnnots({})}>↺ Effacer les annotations ({Object.keys(an.annots).length})</button>
+          </div>}
+        </div>
+      );
+    }
+
+    // le plateau ne fait qu'une chose à la fois : poser des pièces, ou annoter
+    function BoardModeTabs({ mode, onChange }) {
+      return (
+        <div className="tools" style={{ justifyContent: 'center' }}>
+          <button className={'tool' + (mode === 'pieces' ? ' on' : '')} onClick={() => onChange('pieces')}>✋ Placer des pièces</button>
+          <button className={'tool' + (mode === 'annot' ? ' on' : '')} onClick={() => onChange('annot')}>✎ Annoter</button>
+        </div>
+      );
     }
 
     // ---------- Plateau ----------
@@ -821,22 +915,24 @@
     }
 
     // ---------- Mode ARCHIVES (parties et positionnements enregistrés) ----------
-    function Archives({ active, onLoad, onPlay, onResume }) {
+    function Archives({ active, onLoad, onPlay, onResume, onResumeDuel }) {
       const [games, setGames] = useState([]);
+      const [duels, setDuels] = useState([]);
       const [layouts, setLayouts] = useState([]);
       const [err, setErr] = useState(null);
 
-      const reload = () => Promise.all([api.games(), api.layouts('validation')])
-        .then(([g, l]) => { setGames(g); setLayouts(l); setErr(null); })
+      const reload = () => Promise.all([api.games(), api.duels(), api.layouts('validation')])
+        .then(([g, d, l]) => { setGames(g); setDuels(d); setLayouts(l); setErr(null); })
         .catch(e => setErr(e.message));
       useEffect(() => { if (active) reload(); }, [active]);
 
       const delGame = (id) => api.delGame(id).then(reload).catch(e => setErr(e.message));
+      const delDuel = (id) => api.delDuel(id).then(reload).catch(e => setErr(e.message));
       const delLayout = (id) => api.delLayout(id).then(reload).catch(e => setErr(e.message));
 
       return (
         <div>
-          <p className="sub">Toutes tes parties solo et tes positionnements enregistrés.
+          <p className="sub">Toutes tes parties solo, tes duels et tes positionnements enregistrés.
             Une partie se reprend où tu l'avais laissée — questions, annotations et hypothèses — ou se rejoue
             de zéro sur la même disposition cachée.</p>
 
@@ -856,6 +952,24 @@
                     <button onClick={() => onLoad(g.solution)}>📂 Voir la solution</button>
                     <button onClick={() => onPlay(g.solution)}>🎲 Rejouer</button>
                     <button onClick={() => delGame(g.id)}>🗑</button>
+                  </div></td>
+                </tr>)}
+              </tbody></table>}
+          </div>
+
+          <div className="panel" style={{ marginBottom: 12 }}>
+            <h3>Duels ({duels.length})</h3>
+            {duels.length === 0
+              ? <p className="muted" style={{ margin: 0 }}>Aucun duel enregistré — les notes prises en mode DUEL atterrissent ici.</p>
+              : <table className="arch"><tbody>
+                {duels.map(d => <tr key={d.id}>
+                  <td>{dateFR(d.updated_at)}</td>
+                  <td>{d.name || <span className="muted">sans nom</span>}</td>
+                  <td><b style={{ color: 'var(--gold)' }}>{d.questions.length}</b> note{d.questions.length > 1 ? 's' : ''}</td>
+                  <td><div className="row">
+                    <button onClick={() => onResumeDuel(d)}>↩ Reprendre</button>
+                    <button disabled={!d.guess} onClick={() => d.guess && onLoad(d.guess)}>📂 Voir l'hypothèse</button>
+                    <button onClick={() => delDuel(d.id)}>🗑</button>
                   </div></td>
                 </tr>)}
               </tbody></table>}
@@ -959,16 +1073,13 @@
       const [revealed, setRevealed] = useState(false);
       const [verdict, setVerdict] = useState(null);
       const [saved, setSaved] = useState(null);
-      const [annots, setAnnots] = useState({});
-      const [tool, setTool] = useState('grey');
+      const an = useAnnots();
       const [boardMode, setBoardMode] = useState('pieces');   // pièces ou annotations, jamais les deux
-      const [annotColor, setAnnotColor] = useState(ANNOT_COLORS[0][1]);
-      const [triOrient, setTriOrient] = useState(0);
 
       const solBoard = buildBoard(solution);
       const legal = legalCheck(ed.pieces);
 
-      const start = (layout) => { setSolution(layout); setAsked([]); setRevealed(false); setVerdict(null); setSaved(null); setAnnots({}); ed.clear(); };
+      const start = (layout) => { setSolution(layout); setAsked([]); setRevealed(false); setVerdict(null); setSaved(null); an.setAnnots({}); ed.clear(); };
       const newGame = () => start(randomLayout());
 
       useEffect(() => { if (active) window.__solution = () => snapshotJSON(solution); }, [active, solution]);
@@ -978,54 +1089,20 @@
           start(g.solution.map(p => ({ ...p })));
           // les parties archivées avant le changement de notation portent « haut 1 » / « bas R »
           setAsked((g.questions || []).map(q => q.ex ? { ...q, sortie: exLabel(q.ex) } : q));
-          setAnnots(g.annotations || {});
+          an.setAnnots(g.annotations || {});
           if (g.guess) ed.setPieces(g.guess.map(p => ({ ...p })));
           setSaved({ id: g.id });
         };
       });
 
-      // --- annotations : une marque par case, reposer la même l'enlève ---
-      const same = (a, b) => a && b && a.kind === b.kind && a.color === b.color && a.orient === b.orient;
-      const mark = (key, a) => setAnnots(prev => {
-        const next = { ...prev };
-        if (!a || same(prev[key], a)) delete next[key]; else next[key] = a;
-        return next;
-      });
-      const onCell = (x, y) => {
-        const key = x + ',' + y;
-        if (tool === 'erase') mark(key, null);
-        else if (tool === 'grey') mark(key, { kind: 'grey' });
-        else if (tool === 'square') mark(key, { kind: 'square', color: annotColor });
-        else if (tool === 'tri') mark(key, { kind: 'tri', color: annotColor, orient: triOrient });
-      };
-      const onLine = (kind, i) => setAnnots(prev => {
-        const keys = kind === 'row'
-          ? Array.from({ length: COLS }, (_, x) => x + ',' + i)
-          : Array.from({ length: ROWS }, (_, y) => i + ',' + y);
-        const allGrey = keys.every(k => prev[k] && prev[k].kind === 'grey');
-        const next = { ...prev };
-        keys.forEach(k => { if (allGrey) delete next[k]; else next[k] = { kind: 'grey' }; });
-        return next;
-      });
-      const pick = (t) => setTool(t);
       const toBoardMode = (m) => { setBoardMode(m); ed.setSel(null); };
-      const activeTool = boardMode === 'annot' ? tool : 'none';
-
-      useEffect(() => {
-        if (!active || activeTool !== 'tri') return;
-        const h = (e) => {
-          const t = e.target;
-          if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
-          if (e.key === 'r' || e.key === 'R') { setTriOrient(o => (o + 1) % 4); e.preventDefault(); }
-        };
-        window.addEventListener('keydown', h); return () => window.removeEventListener('keydown', h);
-      }, [active, activeTool]);
+      const activeTool = boardMode === 'annot' ? an.tool : 'none';
 
       const saveGame = (won) => {
         setSaved({ pending: true });
         api.saveGame({
           solution, guess: ed.pieces,
-          questions: asked, annotations: annots,
+          questions: asked, annotations: an.annots,
           score: asked.length, won,
           signature: sig(solution),
           guessSignature: ed.pieces.length ? sig(ed.pieces) : null,
@@ -1063,16 +1140,13 @@
             la sortie et la couleur du rayon te répondent. Reconstitue la disposition avec tes 5 pièces, puis vérifie.</p>
           <div className="layout">
             <div className="boardwrap">
-              <div className="tools" style={{ justifyContent: 'center' }}>
-                <button className={'tool' + (boardMode === 'pieces' ? ' on' : '')} onClick={() => toBoardMode('pieces')}>✋ Placer des pièces</button>
-                <button className={'tool' + (boardMode === 'annot' ? ' on' : '')} onClick={() => toBoardMode('annot')}>✎ Annoter</button>
-              </div>
+              <BoardModeTabs mode={boardMode} onChange={toBoardMode} />
               <BoardView pieces={ed.pieces} sel={ed.sel} beam={null} probe={null} ghost={revealed ? solution : null}
                 markerFill={(s, l) => fills[s + ',' + l]}
                 onSelect={ed.setSel}
                 onMovePiece={(i, anchor) => ed.update(i, { anchor })}
                 onMarker={ask}
-                annots={annots} tool={activeTool} onCell={onCell} onLine={onLine} />
+                annots={an.annots} tool={activeTool} onCell={an.onCell} onLine={an.onLine} />
             </div>
 
             <div className="side">
@@ -1100,32 +1174,7 @@
                   : <ProbeTable rows={asked.map(q => [q.entree, q.sortie, q.couleur])} />}
               </div>
 
-              {boardMode === 'annot' && <div className="panel">
-                <h3>Annotations</h3>
-                <div className="tools">
-                  <button className={'tool' + (tool === 'grey' ? ' on' : '')} onClick={() => pick('grey')}>▦ Griser</button>
-                  <button className={'tool' + (tool === 'tri' ? ' on' : '')} onClick={() => pick('tri')}>{TRI_LABEL[triOrient]} Triangle</button>
-                  <button className={'tool' + (tool === 'square' ? ' on' : '')} onClick={() => pick('square')}>■ Carré</button>
-                  <button className={'tool' + (tool === 'erase' ? ' on' : '')} onClick={() => pick('erase')}>🧽 Gomme</button>
-                </div>
-                {(tool === 'tri' || tool === 'square') && <div className="tools">
-                  {ANNOT_COLORS.map(([n, c]) => <button key={n} className={'swbtn' + (annotColor === c ? ' on' : '')}
-                    title={n} aria-label={'Couleur ' + n} onClick={() => setAnnotColor(c)}>
-                    <span className="sw" style={{ background: c }}></span></button>)}
-                </div>}
-                {tool === 'tri' && <div className="tools">
-                  {TRI_LABEL.map((l, o) => <button key={o} className={'tool' + (triOrient === o ? ' on' : '')}
-                    aria-label={'Orientation ' + (o + 1)} onClick={() => setTriOrient(o)}>{l}</button>)}
-                </div>}
-                <p className="muted" style={{ margin: '4px 0 0' }}>
-                  {tool === 'grey' ? <>Clique une case, ou un libellé de ligne / colonne pour la griser en entier. Reclique pour annuler.</>
-                      : tool === 'erase' ? 'Clique une case annotée pour l’effacer.'
-                        : <>Clique une case pour poser la marque{tool === 'tri' ? <> — <kbd>R</kbd> la fait pivoter</> : null}. Reclique pour l’enlever.</>}
-                </p>
-                {Object.keys(annots).length > 0 && <div className="row" style={{ marginTop: 8 }}>
-                  <button onClick={() => setAnnots({})}>↺ Effacer les annotations ({Object.keys(annots).length})</button>
-                </div>}
-              </div>}
+              {boardMode === 'annot' && <AnnotPanel an={an} active={active} />}
 
               {boardMode === 'pieces' && <PiecesPanel ed={ed} title="Tes hypothèses" />}
               <StatusPanel pieces={ed.pieces} legal={legal} />
@@ -1139,20 +1188,225 @@
       );
     }
 
+    // ---------- Mode DUEL (notes contre le positionnement d'un adversaire réel) ----------
+    // Ici l'app ne connaît aucune solution : c'est l'adversaire qui répond, et on saisit
+    // sa réponse en trois clics — le départ, l'arrivée, la couleur.
+    function Duel({ active, bridge }) {
+      const ed = useEditor(active);
+      const an = useAnnots();
+      const [asked, setAsked] = useState([]);
+      const [draft, setDraft] = useState(null);     // {side, line, ex?} — la question en cours de saisie
+      const [boardMode, setBoardMode] = useState('pieces');
+      const [name, setName] = useState('');
+      const [saved, setSaved] = useState(null);     // {id, at} | {pending} | {error}
+      const [conflict, setConflict] = useState(null);
+      const lastSaved = useRef(null);
+
+      const legal = legalCheck(ed.pieces);
+      const toBoardMode = (m) => { setBoardMode(m); ed.setSel(null); };
+      const activeTool = boardMode === 'annot' ? an.tool : 'none';
+
+      // --- saisie d'une question : départ → arrivée → couleur ---
+      const onMarker = (side, line) => setDraft(d => d ? { ...d, ex: [side, line] } : { side, line });
+      const trapped = () => setDraft(d => d && { ...d, ex: ['LOOP', 0] });
+      const answer = (couleur) => {
+        if (!draft || !draft.ex) return;
+        const { side, line, ex } = draft;
+        const note = { side, line, entree: entLabel(side, line), sortie: exLabel(ex), ex, couleur };
+        // re-noter un départ déjà noté corrige la note au lieu de la doubler
+        setAsked(prev => [...prev.filter(q => !(q.side === side && q.line === line)), note]);
+        setDraft(null);
+        setConflict(null);
+      };
+      const forget = (i) => { setAsked(prev => prev.filter((_, k) => k !== i)); setConflict(null); };
+
+      // un rond noté prend la couleur du rayon, aux deux extrémités ; la question en cours est en or
+      const fills = {};
+      asked.forEach(q => {
+        const c = HEX[q.couleur] || '#9aa7bd';
+        fills[q.side + ',' + q.line] = c;
+        if (q.ex && q.ex[0] !== 'LOOP') fills[q.ex[0] + ',' + q.ex[1]] = c;
+      });
+      if (draft) {
+        fills[draft.side + ',' + draft.line] = '#e9c46a';
+        if (draft.ex && draft.ex[0] !== 'LOOP') fills[draft.ex[0] + ',' + draft.ex[1]] = '#e9c46a';
+      }
+
+      // --- confronter l'hypothèse aux notes ---
+      const confront = () => {
+        if (!asked.length) { setConflict({ msg: 'Note d’abord au moins une réponse de ton adversaire.' }); return; }
+        if (!ed.pieces.length) { setConflict({ msg: 'Place des pièces pour confronter ton hypothèse aux notes.' }); return; }
+        const board = buildBoard(ed.pieces);
+        const rows = asked.map(q => {
+          const b = fire2(board, q.side, q.line);
+          return { q, sortie: exLabel(b.ex), couleur: b.col };
+        }).filter(r => r.sortie !== r.q.sortie || r.couleur !== r.q.couleur);
+        const partial = ed.pieces.length < ORDER.length
+          ? ' (hypothèse incomplète : ' + ed.pieces.length + ' pièce' + (ed.pieces.length > 1 ? 's' : '') + ' sur ' + ORDER.length + ')'
+          : !legal.ok ? ' (hypothèse illégale : ' + legal.msg.toLowerCase() + ')' : '';
+        setConflict(rows.length === 0
+          ? { ok: true, msg: 'Compatible : les ' + asked.length + ' note' + (asked.length > 1 ? 's collent' : ' colle') + ' à ton hypothèse' + partial + '.' }
+          : { msg: rows.length + ' note' + (rows.length > 1 ? 's contredisent' : ' contredit') + ' ton hypothèse' + partial + '.', rows });
+      };
+
+      // --- enregistrement : explicite d'abord, puis automatique ---
+      const payload = () => ({
+        name: name.trim() || null,
+        questions: asked,
+        annotations: an.annots,
+        guess: ed.pieces,
+        guessSignature: ed.pieces.length && legal.ok ? sig(ed.pieces) : null,
+      });
+      const push = () => {
+        const body = payload();
+        lastSaved.current = JSON.stringify(body);
+        const id = saved && saved.id;
+        setSaved(s => ({ ...(s || {}), pending: true }));
+        (id ? api.updateDuel(id, body) : api.saveDuel(body))
+          .then(d => setSaved({ id: d.id, at: d.updated_at }))
+          .catch(e => setSaved({ id, error: e.message }));
+      };
+      useEffect(() => {
+        if (!active || !saved || !saved.id || saved.pending) return;
+        const body = JSON.stringify(payload());
+        if (lastSaved.current === null) { lastSaved.current = body; return; }   // duel tout juste repris
+        if (body === lastSaved.current) return;
+        const t = setTimeout(push, 1200);
+        return () => clearTimeout(t);
+      });
+
+      const reset = () => {
+        setAsked([]); setDraft(null); setConflict(null); setName(''); setSaved(null);
+        an.setAnnots({}); ed.clear(); lastSaved.current = null;
+      };
+      useEffect(() => {
+        bridge.current.resumeDuel = (d) => {
+          reset();
+          setName(d.name || '');
+          setAsked(d.questions || []);
+          an.setAnnots(d.annotations || {});
+          if (d.guess) ed.setPieces(d.guess.map(p => ({ ...p })));
+          setSaved({ id: d.id, at: d.updated_at });
+        };
+      });
+
+      const step = !draft ? 'depart' : !draft.ex ? 'arrivee' : 'couleur';
+      const stepText = {
+        depart: 'Clique le rond d’où part le rayon.',
+        arrivee: 'Clique le rond par lequel il ressort — ou dis qu’il est piégé.',
+        couleur: 'Choisis la couleur annoncée par ton adversaire.',
+      }[step];
+
+      return (
+        <div>
+          <p className="sub">Face à un adversaire, c’est lui qui répond : note chaque rayon en trois clics —
+            le départ, l’arrivée, la couleur. Annote le plateau pour raisonner, place tes pièces
+            quand tu crois tenir sa disposition, et confronte-la à tes notes.</p>
+          <div className="layout">
+            <div className="boardwrap">
+              <BoardModeTabs mode={boardMode} onChange={toBoardMode} />
+              <BoardView pieces={ed.pieces} sel={ed.sel} beam={null} probe={null} ghost={null}
+                markerFill={(s, l) => fills[s + ',' + l]}
+                onSelect={ed.setSel}
+                onMovePiece={(i, anchor) => ed.update(i, { anchor })}
+                onMarker={onMarker}
+                annots={an.annots} tool={activeTool} onCell={an.onCell} onLine={an.onLine} />
+            </div>
+
+            <div className="side">
+              <div className="panel">
+                <h3>Noter un rayon</h3>
+                <div className="result">
+                  <b style={{ color: draft ? 'var(--gold)' : 'var(--muted)' }}>{draft ? entLabel(draft.side, draft.line) : '—'}</b>
+                  <span className="muted">→</span>
+                  <b style={{ color: draft && draft.ex ? 'var(--gold)' : 'var(--muted)' }}>{draft && draft.ex ? exLabel(draft.ex) : '—'}</b>
+                </div>
+                <p className="muted" style={{ margin: '6px 0 0' }}>{stepText}</p>
+                {step === 'arrivee' && <div className="row" style={{ marginTop: 8 }}>
+                  <button onClick={trapped}>🌀 Rayon piégé</button>
+                </div>}
+                {step === 'couleur' && <div className="tools" style={{ marginTop: 8, marginBottom: 0 }}>
+                  {ANSWER_COLORS.map(c => <button key={c} className="tool" onClick={() => answer(c)}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    <span className="sw" style={{ width: 13, height: 13, background: HEX[c] }}></span>{c}</button>)}
+                </div>}
+                {draft && <div className="row" style={{ marginTop: 8 }}>
+                  <button onClick={() => setDraft(null)}>✕ Annuler cette question</button>
+                </div>}
+              </div>
+
+              <div className="panel">
+                <h3>Notes ({asked.length})</h3>
+                {asked.length === 0
+                  ? <p className="muted" style={{ margin: 0 }}>Rien de noté — clique un rond du bord pour ta première question.</p>
+                  : <div className="tabwrap"><table><tbody>
+                    {asked.map((q, i) => <tr key={q.side + q.line}>
+                      <td>{q.entree}</td><td>→</td><td>{q.sortie}</td>
+                      <td><span className="sw" style={{ width: 11, height: 11, display: 'inline-block', background: HEX[q.couleur] || '#334155', verticalAlign: 'middle' }}></span> {q.couleur}</td>
+                      <td style={{ width: 1 }}><button style={{ padding: '1px 5px', fontSize: 11 }}
+                        title="Oublier cette note" onClick={() => forget(i)}>🗑</button></td>
+                    </tr>)}
+                  </tbody></table></div>}
+                {asked.length > 0 && <p className="muted" style={{ margin: '6px 0 0' }}>
+                  Un rayon se parcourt dans les deux sens : la note vaut aussi depuis son arrivée.</p>}
+              </div>
+
+              <div className="panel">
+                <h3>Confronter</h3>
+                <div className="row">
+                  <button onClick={confront}>🔍 Comparer aux notes</button>
+                  {conflict && <button onClick={() => setConflict(null)}>Effacer</button>}
+                </div>
+                {conflict && <div className={'status ' + (conflict.ok ? 'ok' : 'bad')} style={{ marginTop: 8 }}>{conflict.msg}</div>}
+                {conflict && conflict.rows && <div className="tabwrap" style={{ marginTop: 8 }}><table><tbody>
+                  <tr><td colSpan="2">noté</td><td colSpan="2">ton hypothèse</td></tr>
+                  {conflict.rows.map((r, i) => <tr key={i}>
+                    <td>{r.q.entree} → {r.q.sortie}</td><td>{r.q.couleur}</td>
+                    <td>{r.q.entree} → {r.sortie}</td><td>{r.couleur}</td>
+                  </tr>)}
+                </tbody></table></div>}
+              </div>
+
+              {boardMode === 'annot' ? <AnnotPanel an={an} active={active} /> : <PiecesPanel ed={ed} title="Ton hypothèse" />}
+
+              <div className="panel">
+                <h3>Le duel</h3>
+                <div className="row">
+                  <input className="txt" placeholder="Nom de l’adversaire (optionnel)" value={name} maxLength={80}
+                    onChange={e => setName(e.target.value)} />
+                  <button onClick={push} disabled={saved && saved.pending}>💾 Enregistrer</button>
+                </div>
+                <div className="row" style={{ marginTop: 6 }}>
+                  <button onClick={reset}>🆕 Nouveau duel</button>
+                </div>
+                {saved && !saved.pending && <div className={'status ' + (saved.error ? 'bad' : 'ok')} style={{ marginTop: 8 }}>
+                  {saved.error || `Duel #${saved.id} enregistré — il se sauvegarde tout seul à chaque note, et se reprend depuis ARCHIVES.`}</div>}
+              </div>
+
+              <StatusPanel pieces={ed.pieces} legal={legal} />
+              <DebugPanel active={active} pieces={ed.pieces} board={buildBoard(ed.pieces)} probe={null} />
+            </div>
+          </div>
+        </div>
+      );
+    }
+
     function App() {
       const [mode, setMode] = useState('solo');
       const bridge = useRef({});
       const onLoad = (pieces) => { bridge.current.loadValidation(pieces); setMode('validation'); };
       const onPlay = (pieces) => { bridge.current.playSolo(pieces); setMode('solo'); };
       const onResume = (game) => { bridge.current.resumeSolo(game); setMode('solo'); };
+      const onResumeDuel = (duel) => { bridge.current.resumeDuel(duel); setMode('duel'); };
       const tab = (id, label) => <button className={'tab' + (mode === id ? ' active' : '')} onClick={() => setMode(id)}>{label}</button>;
       return (
         <div>
           <h1>ORAPA <span className="g">MINE</span></h1>
-          <div className="tabs">{tab('solo', 'SOLO')}{tab('validation', 'VALIDATION')}{tab('archives', 'ARCHIVES')}</div>
+          <div className="tabs">{tab('solo', 'SOLO')}{tab('duel', 'DUEL')}{tab('validation', 'VALIDATION')}{tab('archives', 'ARCHIVES')}</div>
           <div style={{ display: mode === 'solo' ? 'block' : 'none' }}><Solo active={mode === 'solo'} bridge={bridge} /></div>
+          <div style={{ display: mode === 'duel' ? 'block' : 'none' }}><Duel active={mode === 'duel'} bridge={bridge} /></div>
           <div style={{ display: mode === 'validation' ? 'block' : 'none' }}><Validation active={mode === 'validation'} bridge={bridge} /></div>
-          <div style={{ display: mode === 'archives' ? 'block' : 'none' }}><Archives active={mode === 'archives'} onLoad={onLoad} onPlay={onPlay} onResume={onResume} /></div>
+          <div style={{ display: mode === 'archives' ? 'block' : 'none' }}><Archives active={mode === 'archives'} onLoad={onLoad} onPlay={onPlay} onResume={onResume} onResumeDuel={onResumeDuel} /></div>
         </div>
       );
     }

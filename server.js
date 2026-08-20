@@ -16,7 +16,7 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS layouts (
     id         INTEGER PRIMARY KEY,
     name       TEXT,
-    source     TEXT NOT NULL,           -- validation | solo-solution | solo-hypothese
+    source     TEXT NOT NULL,           -- validation | solo-solution | solo-hypothese | duel-hypothese
     pieces     TEXT NOT NULL,           -- JSON [{name, anchor, rot, flip}]
     signature  TEXT NOT NULL,           -- les 36 sondages, pour reconnaître une position
     created_at TEXT NOT NULL
@@ -31,6 +31,17 @@ db.exec(`
     score       INTEGER NOT NULL,       -- nombre de questions posées
     won         INTEGER NOT NULL,
     created_at  TEXT NOT NULL
+  );
+
+  -- un duel : les notes prises contre le positionnement d'un adversaire réel
+  CREATE TABLE IF NOT EXISTS duels (
+    id          INTEGER PRIMARY KEY,
+    name        TEXT,
+    guess_id    INTEGER          REFERENCES layouts(id) ON DELETE SET NULL,
+    questions   TEXT NOT NULL,          -- JSON [{entree, side, line, sortie, ex, couleur}]
+    annotations TEXT NOT NULL DEFAULT '{}',  -- JSON {"x,y": {kind, color, orient}}
+    created_at  TEXT NOT NULL,
+    updated_at  TEXT NOT NULL
   );
 
   CREATE INDEX IF NOT EXISTS layouts_signature ON layouts(signature);
@@ -61,6 +72,25 @@ const deleteGameLayouts = db.prepare(
   'DELETE FROM layouts WHERE id IN (SELECT solution_id FROM games WHERE id = ?1 UNION SELECT guess_id FROM games WHERE id = ?1)');
 const selectGame = db.prepare('SELECT * FROM games WHERE id = ?');
 
+const selectDuels = db.prepare(`
+  SELECT d.*, h.pieces AS guess_pieces
+  FROM duels d
+  LEFT JOIN layouts h ON h.id = d.guess_id
+  ORDER BY d.updated_at DESC, d.id DESC`);
+const selectDuel = db.prepare(`
+  SELECT d.*, h.pieces AS guess_pieces
+  FROM duels d
+  LEFT JOIN layouts h ON h.id = d.guess_id
+  WHERE d.id = ?`);
+const insertDuel = db.prepare(
+  'INSERT INTO duels (name, guess_id, questions, annotations, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)');
+const updateDuel = db.prepare(
+  'UPDATE duels SET name = ?, guess_id = ?, questions = ?, annotations = ?, updated_at = ? WHERE id = ?');
+const duelGuess = db.prepare('SELECT guess_id FROM duels WHERE id = ?');
+const deleteDuel = db.prepare('DELETE FROM duels WHERE id = ?');
+// l'hypothèse d'un duel ne vit que par lui
+const deleteDuelLayout = db.prepare('DELETE FROM layouts WHERE id = (SELECT guess_id FROM duels WHERE id = ?)');
+
 const now = () => new Date().toISOString();
 const layoutRow = (r) => ({ ...r, pieces: JSON.parse(r.pieces) });
 const gameRow = (r) => ({
@@ -68,6 +98,13 @@ const gameRow = (r) => ({
   questions: JSON.parse(r.questions),
   annotations: JSON.parse(r.annotations || '{}'),
   solution: JSON.parse(r.solution_pieces),
+  guess: r.guess_pieces ? JSON.parse(r.guess_pieces) : null,
+});
+
+const duelRow = (r) => ({
+  id: r.id, name: r.name, created_at: r.created_at, updated_at: r.updated_at,
+  questions: JSON.parse(r.questions),
+  annotations: JSON.parse(r.annotations || '{}'),
   guess: r.guess_pieces ? JSON.parse(r.guess_pieces) : null,
 });
 
@@ -126,6 +163,42 @@ async function route(req, url) {
     const id = idOf('/api/games/');
     db.exec('BEGIN');
     try { deleteGameLayouts.run(id); deleteGame.run(id); db.exec('COMMIT'); }
+    catch (e) { db.exec('ROLLBACK'); throw e; }
+    return null;
+  }
+  if (req.method === 'GET' && p === '/api/duels') {
+    return selectDuels.all().map(duelRow);
+  }
+  if (req.method === 'POST' && p === '/api/duels') {
+    const { name = null, guess, questions = [], annotations = {}, guessSignature } = await readJSON(req);
+    const t = now();
+    const guessId = guess && guess.length
+      ? saveLayout({ source: 'duel-hypothese', pieces: guess, signature: guessSignature })
+      : null;
+    const { lastInsertRowid } = insertDuel.run(
+      name, guessId, JSON.stringify(questions), JSON.stringify(annotations), t, t);
+    return duelRow(selectDuel.get(Number(lastInsertRowid)));
+  }
+  if (req.method === 'PUT' && p.startsWith('/api/duels/')) {
+    const id = idOf('/api/duels/');
+    const before = duelGuess.get(id);
+    if (!before) throw new HttpError(404, 'duel introuvable');
+    const { name = null, guess, questions = [], annotations = {}, guessSignature } = await readJSON(req);
+    db.exec('BEGIN');
+    try {
+      const guessId = guess && guess.length
+        ? saveLayout({ source: 'duel-hypothese', pieces: guess, signature: guessSignature })
+        : null;
+      updateDuel.run(name, guessId, JSON.stringify(questions), JSON.stringify(annotations), now(), id);
+      if (before.guess_id) deleteLayout.run(before.guess_id);   // l'ancienne hypothèse ne sert plus
+      db.exec('COMMIT');
+    } catch (e) { db.exec('ROLLBACK'); throw e; }
+    return duelRow(selectDuel.get(id));
+  }
+  if (req.method === 'DELETE' && p.startsWith('/api/duels/')) {
+    const id = idOf('/api/duels/');
+    db.exec('BEGIN');
+    try { deleteDuelLayout.run(id); deleteDuel.run(id); db.exec('COMMIT'); }
     catch (e) { db.exec('ROLLBACK'); throw e; }
     return null;
   }
