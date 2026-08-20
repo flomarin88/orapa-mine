@@ -338,16 +338,19 @@
       grandblanc: [[0, 2], [4, 2], [2, 0]],
       rouge: [[1, 0], [3, 0], [2, 1], [0, 1]],
       petitblanc: [[1, 0], [2, 1], [1, 2], [0, 1]],
+      transparent: [[0, 0], [1, 0], [0, 1]],
     };
-    const MAT = { rouge: 'red', jaune: 'yellow', bleu: 'blue', grandblanc: 'white', petitblanc: 'white' };
+    // `null` = matière transparente : elle dévie le rayon sans teinter sa couleur
+    const MAT = { rouge: 'red', jaune: 'yellow', bleu: 'blue', grandblanc: 'white', petitblanc: 'white', transparent: null };
     const META = {
       rouge: { label: 'Rouge', fill: '#dc2626', stroke: 'rgba(255,255,255,.55)' },
       jaune: { label: 'Jaune', fill: '#eab308', stroke: 'rgba(255,255,255,.55)' },
       bleu: { label: 'Bleu', fill: '#2563eb', stroke: 'rgba(255,255,255,.55)' },
       grandblanc: { label: 'Grand blanc', fill: '#eef2f9', stroke: '#334155' },
       petitblanc: { label: 'Petit blanc', fill: '#eef2f9', stroke: '#334155' },
+      transparent: { label: 'Transparent', fill: '#bfdbfe', stroke: '#7dd3fc', opacity: 0.32 },
     };
-    const ORDER = ['rouge', 'jaune', 'bleu', 'grandblanc', 'petitblanc'];
+    const ORDER = ['rouge', 'jaune', 'bleu', 'grandblanc', 'petitblanc', 'transparent'];
     function transform(poly, rot, flip) {
       let pts = poly.map(([x, y]) => [x, y]);
       if (flip) pts = pts.map(([x, y]) => [-x, y]);
@@ -374,7 +377,13 @@
             const ax = x1 + s * sx, ay = y1 + s * sy, bx = ax + sx, by = ay + sy;
             const cx = Math.min(ax, bx), cy = Math.min(ay, by);
             const isTLBR = (ax === cx && ay === cy && bx === cx + 1 && by === cy + 1) || (ax === cx + 1 && ay === cy + 1 && bx === cx && by === cy);
-            faces[cx + ',' + cy] = isTLBR ? '\\' : '/';
+            const orient = isTLBR ? '\\' : '/';
+            // l'arête coupe la case en deux ; `filled` note les côtés qui bordent la moitié pleine,
+            // ceux par lesquels un rayon bute sur un flanc plat de la pièce au lieu du miroir
+            const filled = orient === '/'
+              ? (pointInPoly(cx + 1 / 3, cy + 1 / 3, poly) ? 'TL' : 'BR')
+              : (pointInPoly(cx + 2 / 3, cy + 1 / 3, poly) ? 'TR' : 'BL');
+            faces[cx + ',' + cy] = { orient, filled };
           }
         }
       }
@@ -390,7 +399,7 @@
       pieces.forEach((pc, idx) => {
         const poly = placedPoly(pc); polys.push(poly); mat.push(MAT[pc.name]);
         const { faces: f, solids: s } = rasterize(poly); const cells = new Set();
-        for (const k in f) { faces[k] = [f[k], idx]; cells.add(k); }
+        for (const k in f) { faces[k] = [f[k].orient, idx, f[k].filled]; cells.add(k); }
         s.forEach(k => { solid.set(k, idx); cells.add(k); }); cellsOf.push(cells);
       });
       return { faces, solid, mat, polys, cellsOf };
@@ -413,6 +422,7 @@
     }
     const REFL = { '\\': { R: 'D', D: 'R', L: 'U', U: 'L' }, '/': { R: 'U', U: 'R', L: 'D', D: 'L' } };
     const REV = { R: 'L', L: 'R', U: 'D', D: 'U' };
+    const ENTRY = { R: 'L', L: 'R', D: 'T', U: 'B' };   // le côté par lequel un rayon allant vers `d` entre dans une case
     const DIRV = { R: [1, 0], L: [-1, 0], U: [0, -1], D: [0, 1] };
     const MIX = { 'red': 'rouge', 'yellow': 'jaune', 'blue': 'bleu', 'white': 'blanc', 'red+yellow': 'orange', 'blue+red': 'violet', 'blue+yellow': 'vert', 'blue+red+yellow': 'noir', 'red+white': 'rose', 'white+yellow': 'citron', 'blue+white': 'bleu ciel', 'blue+red+white+yellow': 'gris', 'blue+white+yellow': 'vert clair', 'blue+red+white': 'violet clair', 'red+white+yellow': 'orange clair' };
     function mixname(cs) { if (cs.length === 0) return 'transparent'; const key = [...new Set(cs)].sort().join('+'); return MIX[key] || cs.join('+'); }
@@ -425,13 +435,17 @@
       for (let step = 0; step < maxsteps; step++) {
         const key = cx + ',' + cy;
         if (board.faces[key]) {
-          seg.push(mixname(colors)); const [orient, idx] = board.faces[key]; const c = board.mat[idx];
-          if (!colors.includes(c)) colors.push(c); d = REFL[orient][d]; path.push([cx + 0.5, cy + 0.5]);
+          seg.push(mixname(colors)); const [orient, idx, filled] = board.faces[key]; const c = board.mat[idx];
+          if (c && !colors.includes(c)) colors.push(c);
+          // entrer du côté plein, c'est buter sur un flanc plat : demi-tour, comme sur une case pleine.
+          // Sinon le rayon atteint l'arête en biais et s'y réfléchit.
+          d = filled.includes(ENTRY[d]) ? REV[d] : REFL[orient][d];
+          path.push([cx + 0.5, cy + 0.5]);
         }
         else if (board.solid.has(key)) {
           // base plate : demi-tour à 180°, le rayon prend la couleur de la pièce
           seg.push(mixname(colors)); const c = board.mat[board.solid.get(key)];
-          if (!colors.includes(c)) colors.push(c); d = REV[d]; path.push([cx + 0.5, cy + 0.5]);
+          if (c && !colors.includes(c)) colors.push(c); d = REV[d]; path.push([cx + 0.5, cy + 0.5]);
         }
         const [dx, dy] = DIRV[d]; const ncx = cx + dx, ncy = cy + dy;
         if (!(ncx >= 0 && ncx <= 9 && ncy >= 0 && ncy <= 7)) {
@@ -457,7 +471,7 @@
     // sortie et entrée partagent la même notation : A-H, 11-18, 1-10, I-R
     const exLabel = (ex) => { const [s, i] = ex; if (s === 'LOOP') return 'rayon piégé'; return entLabel(s, i) || '—'; };
 
-    const DEFAULT_ANCHOR = { rouge: [0, 0], jaune: [8, 0], bleu: [0, 5], grandblanc: [5, 5], petitblanc: [4, 3] };
+    const DEFAULT_ANCHOR = { rouge: [0, 0], jaune: [8, 0], bleu: [0, 5], grandblanc: [5, 5], petitblanc: [4, 3], transparent: [0, 3] };
 
     // ---------- Annotations (mode solo) ----------
     const ANNOT_COLORS = [['rouge', '#dc2626'], ['jaune', '#eab308'], ['bleu', '#2563eb'], ['blanc', '#eef2f9']];
@@ -496,7 +510,7 @@
     function snapshotJSON(pieces) {
       const board = buildBoard(pieces);
       const faces = {}, solid = {};
-      for (const k in board.faces) { const [orient, idx] = board.faces[k]; faces[k] = { orient, piece: pieces[idx].name }; }
+      for (const k in board.faces) { const [orient, idx, filled] = board.faces[k]; faces[k] = { orient, filled, piece: pieces[idx].name }; }
       for (const [k, idx] of board.solid) solid[k] = pieces[idx].name;
       return {
         cols: COLS, rows: ROWS,
@@ -839,7 +853,7 @@
           {pieces.map((pc, i) => {
             const poly = placedPoly(pc); const pts = poly.map(([x, y]) => PX(x, y).join(',')).join(' ');
             const m = META[pc.name]; const selc = i === sel;
-            return <polygon key={'pc' + i} points={pts} fill={m.fill} fillOpacity="0.96"
+            return <polygon key={'pc' + i} points={pts} fill={m.fill} fillOpacity={m.opacity ?? 0.96}
               stroke={selc ? '#e9c46a' : m.stroke} strokeWidth={selc ? 3 : 1.5} strokeLinejoin="round"
               style={{ cursor: drawing ? 'crosshair' : 'grab', pointerEvents: drawing ? 'none' : 'auto' }}
               onPointerDown={(e) => onDown(i, e)} />;
@@ -887,7 +901,7 @@
           {ORDER.map(name => {
             const placed = ed.pieces.some(p => p.name === name); const m = META[name];
             return <button key={name} className="pbtn" disabled={placed} onClick={() => ed.addPiece(name)}>
-              <span className="sw" style={{ background: m.fill }}></span>
+              <span className="sw" style={{ background: m.fill, opacity: m.opacity ?? 1 }}></span>
               {placed ? `${m.label} — placée` : `＋ Ajouter ${m.label}`}</button>;
           })}
           <div className="row" style={{ marginTop: 4 }}>
@@ -1241,7 +1255,7 @@
       });
 
       const verify = () => {
-        if (ed.pieces.length !== ORDER.length) { setVerdict({ ok: false, msg: 'Place les 5 pièces avant de vérifier.' }); return; }
+        if (ed.pieces.length !== ORDER.length) { setVerdict({ ok: false, msg: `Place les ${ORDER.length} pièces avant de vérifier.` }); return; }
         if (!legal.ok) { setVerdict({ ok: false, msg: legal.msg }); return; }
         const mine = probeResults(ed.pieces), truth = probeResults(solution);
         const diff = mine.filter((r, i) => r !== truth[i]).length;
@@ -1254,7 +1268,7 @@
       return (
         <div>
           <p className="sub">Une disposition est cachée. Clique un rond du bord pour poser une question ;
-            la sortie et la couleur du rayon te répondent. Reconstitue la disposition avec tes 5 pièces, puis vérifie.</p>
+            la sortie et la couleur du rayon te répondent. Reconstitue la disposition avec tes {ORDER.length} pièces, puis vérifie.</p>
           <div className="layout">
             <div className="boardwrap">
               <BoardModeTabs mode={boardMode} onChange={toBoardMode} />

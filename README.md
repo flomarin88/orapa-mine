@@ -16,11 +16,28 @@ Le même fichier se publie tel quel sur GitHub Pages — voir
 [docs/hebergement-github-pages.md](docs/hebergement-github-pages.md). La page a besoin d'un
 accès réseau au premier chargement, React étant chargé depuis un CDN.
 
+## Les six pièces
+
+Cinq pièces colorées — **Rouge** (parallélogramme), **Jaune** (triangle rectangle isocèle de
+côté 2), **Bleu** et **Grand blanc** (triangles isocèles de base 4), **Petit blanc** (losange) —
+et une sixième, **Transparent** : un petit triangle rectangle isocèle de côté 1, qui n'occupe
+qu'une case. Il dévie le rayon comme les autres pièces, mais sans le teinter : un rayon devenu
+rouge chez le Rouge ressort rouge après le Transparent, et un rayon qui ne croise que du
+transparent ressort incolore.
+
+Comme toute pièce, il n'est un miroir que sur son hypoténuse : un rayon qui l'aborde par l'un de
+ses deux côtés droits bute sur un flanc plat et repart d'où il vient. Les grandes pièces cachaient
+cette règle — derrière leurs faces plates il y a toujours une case pleine, qui renvoie déjà le
+rayon à 180°. Le petit triangle, large d'une seule case, n'en a pas : `rasterize` note donc
+maintenant, pour chaque case coupée en biais, quel demi-carré porte la matière (`filled`), et
+`fire2` fait demi-tour quand le rayon y entre par un côté plein. Les cinq pièces d'origine gardent
+au sondage près le comportement qu'elles avaient.
+
 ## Les quatre modes
 
 - **SOLO** — une disposition est tirée au hasard et cachée. Chaque clic sur un rond du bord
   pose une question ; la sortie et la couleur du rayon s'affichent. Le score est le nombre de
-  questions posées. On reconstitue la disposition avec les 5 pièces, puis « Vérifier » compare
+  questions posées. On reconstitue la disposition avec les 6 pièces, puis « Vérifier » compare
   les 36 sondages. Une partie gagnée s'archive automatiquement.
   Un sélecteur au-dessus du plateau choisit ce qu'un clic y pose : des pièces, ou des annotations
   pour raisonner — griser une case (ou une ligne / colonne entière en cliquant son libellé), poser
