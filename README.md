@@ -20,14 +20,15 @@ accès réseau au premier chargement, React étant chargé depuis un CDN.
 
 Cinq pièces colorées — **Rouge** (parallélogramme), **Jaune** (triangle rectangle isocèle de
 côté 2), **Bleu** et **Grand blanc** (triangles isocèles de base 4), **Petit blanc** (losange) —
-et deux petits triangles rectangles isocèles de côté 1, qui n'occupent qu'une case chacun :
+et deux petites :
 
-- **Transparent** — il dévie le rayon comme les autres pièces, mais sans le teinter. Un rayon
-  devenu rouge chez le Rouge ressort rouge après le Transparent ; un rayon qui ne croise que du
-  transparent ressort incolore.
-- **Noir** — il avale le rayon. Peu importe par où celui-ci l'aborde et ce qu'il avait déjà
-  touché : il n'y a pas de sortie, et donc aucune couleur à annoncer. La réponse à la question
-  est « rien ne ressort ».
+- **Transparent** — un triangle rectangle isocèle de côté 1, large d'une seule case. Il dévie le
+  rayon comme les autres pièces, mais sans le teinter : un rayon devenu rouge chez le Rouge
+  ressort rouge après le Transparent, et un rayon qui ne croise que du transparent ressort
+  incolore.
+- **Noir** — un rectangle 2×1, deux cases pleines sans aucune arête en biais. Il avale le rayon :
+  peu importe par où celui-ci l'aborde et ce qu'il avait déjà touché, il n'y a pas de sortie, et
+  donc aucune couleur à annoncer. La réponse à la question est « rien ne ressort ».
 
 Toute pièce qui renvoie le rayon n'est un miroir que sur son hypoténuse : un rayon qui l'aborde
 par l'un de ses côtés droits bute sur un flanc plat et repart d'où il vient. Les grandes pièces

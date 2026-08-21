@@ -339,7 +339,7 @@
       rouge: [[1, 0], [3, 0], [2, 1], [0, 1]],
       petitblanc: [[1, 0], [2, 1], [1, 2], [0, 1]],
       transparent: [[0, 0], [1, 0], [0, 1]],
-      noir: [[0, 0], [1, 0], [0, 1]],
+      noir: [[0, 0], [2, 0], [2, 1], [0, 1]],
     };
     // `null` = matière sans teinte : elle ne colore pas le rayon qui la touche
     const MAT = { rouge: 'red', jaune: 'yellow', bleu: 'blue', grandblanc: 'white', petitblanc: 'white', transparent: null, noir: null };
@@ -352,7 +352,7 @@
       grandblanc: { label: 'Grand blanc', fill: '#eef2f9', stroke: '#334155' },
       petitblanc: { label: 'Petit blanc', fill: '#eef2f9', stroke: '#334155' },
       transparent: { label: 'Transparent', fill: '#bfdbfe', stroke: '#7dd3fc', opacity: 0.32 },
-      noir: { label: 'Noir', fill: '#0b1220', stroke: '#94a3b8' },
+      noir: { label: 'Noir', fill: '#0b1220', stroke: '#94a3b8' },   // rectangle 2×1 : deux cases pleines, aucune arête en biais
     };
     const ORDER = ['rouge', 'jaune', 'bleu', 'grandblanc', 'petitblanc', 'transparent', 'noir'];
     function transform(poly, rot, flip) {
@@ -482,7 +482,7 @@
     // piégé ou absorbé, le rayon ne ressort par aucun rond du bord
     const hasExit = (ex) => ex[0] !== 'LOOP' && ex[0] !== 'ABSORB';
 
-    const DEFAULT_ANCHOR = { rouge: [0, 0], jaune: [8, 0], bleu: [0, 5], grandblanc: [5, 5], petitblanc: [4, 3], transparent: [0, 3], noir: [9, 3] };
+    const DEFAULT_ANCHOR = { rouge: [0, 0], jaune: [8, 0], bleu: [0, 5], grandblanc: [5, 5], petitblanc: [4, 3], transparent: [0, 3], noir: [8, 3] };
 
     // ---------- Annotations (mode solo) ----------
     const ANNOT_COLORS = [['rouge', '#dc2626'], ['jaune', '#eab308'], ['bleu', '#2563eb'], ['blanc', '#eef2f9']];
