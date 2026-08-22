@@ -538,16 +538,31 @@
       };
     }
 
+    // ---------- Solo : niveaux ----------
+    // Chaque niveau reprend le précédent et lui ajoute une pièce.
+    const BASE_PIECES = ['rouge', 'jaune', 'bleu', 'grandblanc', 'petitblanc'];
+    const LEVELS = [
+      { key: 'normal', label: 'Normal', pieces: BASE_PIECES, hint: 'Les cinq pièces de base.' },
+      { key: 'avance', label: 'Avancé', pieces: [...BASE_PIECES, 'transparent'], hint: 'Les cinq pièces de base, plus le Transparent.' },
+      { key: 'expert', label: 'Expert', pieces: [...BASE_PIECES, 'transparent', 'noir'], hint: 'Les six précédentes, plus le Noir.' },
+    ];
+    // Le niveau d'une partie se relit dans sa disposition : rien à stocker, les archives d'avant restent lisibles.
+    const levelOf = (pieces) => {
+      const noms = new Set((pieces || []).map(p => p.name));
+      return LEVELS.find(l => l.pieces.length === noms.size && l.pieces.every(n => noms.has(n)))
+        || (noms.has('noir') ? LEVELS[2] : noms.has('transparent') ? LEVELS[1] : LEVELS[0]);
+    };
+
     // ---------- Solo : génération d'une disposition et comparaison ----------
     function shuffled(arr) {
       const a = arr.slice();
       for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
       return a;
     }
-    function randomLayout() {
+    function randomLayout(names = ORDER) {
       for (let attempt = 0; attempt < 30; attempt++) {
         const placed = [];
-        for (const name of ORDER) {
+        for (const name of names) {
           const cands = [];
           for (let rot = 0; rot < 4; rot++) for (const flip of [false, true])
             for (let x = 0; x <= COLS; x++) for (let y = 0; y <= ROWS; y++) cands.push({ name, anchor: [x, y], rot, flip });
@@ -555,9 +570,9 @@
           if (!hit) break;
           placed.push(hit);
         }
-        if (placed.length === ORDER.length) return placed;
+        if (placed.length === names.length) return placed;
       }
-      return ORDER.map(name => ({ name, anchor: DEFAULT_ANCHOR[name].slice(), rot: 0, flip: false }));
+      return names.map(name => ({ name, anchor: DEFAULT_ANCHOR[name].slice(), rot: 0, flip: false }));
     }
     function probeResults(pieces) {
       const board = buildBoard(pieces);
@@ -918,11 +933,11 @@
     }
 
     // ---------- Panneaux partagés ----------
-    function PiecesPanel({ ed, title }) {
+    function PiecesPanel({ ed, title, names = ORDER }) {
       return (<>
         <div className="panel">
           <h3>{title}</h3>
-          {ORDER.map(name => {
+          {names.map(name => {
             const placed = ed.pieces.some(p => p.name === name); const m = META[name];
             return <button key={name} className="pbtn" disabled={placed} onClick={() => ed.addPiece(name)}>
               <span className="sw" style={{ background: m.fill, opacity: m.opacity ?? 1 }}></span>
@@ -1103,6 +1118,7 @@
                 {games.map(g => <tr key={g.id}>
                   <td>{dateFR(g.created_at)}</td>
                   <td><b style={{ color: 'var(--gold)' }}>{g.score}</b> question{g.score > 1 ? 's' : ''}</td>
+                  <td>{levelOf(g.solution).label}</td>
                   <td>{g.won ? '✓ trouvée' : '— non trouvée'}</td>
                   <td><div className="row">
                     <button onClick={() => onResume(g)}>↩ Reprendre</button>
@@ -1261,7 +1277,8 @@
     // ---------- Mode SOLO (disposition cachée à deviner) ----------
     function Solo({ active, bridge }) {
       const ed = useEditor(active);
-      const [solution, setSolution] = useState(randomLayout);
+      const [solution, setSolution] = useState(() => randomLayout(LEVELS[0].pieces));
+      const [level, setLevel] = useState(LEVELS[0]);
       const [asked, setAsked] = useState([]);
       const [revealed, setRevealed] = useState(false);
       const [verdict, setVerdict] = useState(null);
@@ -1275,8 +1292,10 @@
       const beam = probe ? fire2(myBoard, probe.side, probe.line) : null;
       const legal = legalCheck(ed.pieces);
 
-      const start = (layout) => { setSolution(layout); setAsked([]); setRevealed(false); setVerdict(null); setSaved(null); an.setAnnots({}); ed.clear(); setProbe(null); };
-      const newGame = () => start(randomLayout());
+      // le niveau se relit dans la disposition, quelle que soit sa provenance : tirage, archive, éditeur
+      const start = (layout) => { setSolution(layout); setLevel(levelOf(layout)); setAsked([]); setRevealed(false); setVerdict(null); setSaved(null); an.setAnnots({}); ed.clear(); setProbe(null); };
+      const newGame = () => start(randomLayout(level.pieces));
+      const chooseLevel = (l) => start(randomLayout(l.pieces));
 
       useEffect(() => { if (active) window.__solution = () => snapshotJSON(solution); }, [active, solution]);
       useEffect(() => {
@@ -1318,7 +1337,7 @@
       });
 
       const verify = () => {
-        if (ed.pieces.length !== ORDER.length) { setVerdict({ ok: false, msg: `Place les ${ORDER.length} pièces avant de vérifier.` }); return; }
+        if (ed.pieces.length !== solution.length) { setVerdict({ ok: false, msg: `Place les ${solution.length} pièces avant de vérifier.` }); return; }
         if (!legal.ok) { setVerdict({ ok: false, msg: legal.msg }); return; }
         const mine = probeResults(ed.pieces), truth = probeResults(solution);
         const diff = mine.filter((r, i) => r !== truth[i]).length;
@@ -1331,7 +1350,7 @@
       return (
         <div>
           <p className="sub">Une disposition est cachée. Clique un rond du bord pour poser une question ;
-            la sortie et la couleur du rayon te répondent. Reconstitue la disposition avec tes {ORDER.length} pièces, puis vérifie.</p>
+            la sortie et la couleur du rayon te répondent. Reconstitue la disposition avec tes {solution.length} pièces, puis vérifie.</p>
           <div className="layout">
             <div className="boardwrap">
               <BoardModeTabs mode={boardMode} onChange={toBoardMode} />
@@ -1346,6 +1365,11 @@
             <div className="side">
               <div className="panel">
                 <h3>Partie</h3>
+                <div className="tools">
+                  {LEVELS.map(l => <button key={l.key} className={'tool' + (level.key === l.key ? ' on' : '')}
+                    onClick={() => chooseLevel(l)}>{l.label}</button>)}
+                </div>
+                <p className="muted" style={{ margin: '2px 0 8px' }}>{level.hint} Changer de niveau relance une partie.</p>
                 <div className="score">
                   <b>{asked.length}</b>
                   <span className="muted">question{asked.length > 1 ? 's' : ''} posée{asked.length > 1 ? 's' : ''} — moins il y en a, meilleur est le score</span>
@@ -1373,7 +1397,7 @@
                 noted={probe && asked.find(q => q.side === probe.side && q.line === probe.line)}
                 onClear={() => setProbe(null)} />}
 
-              {boardMode !== 'annot' && <PiecesPanel ed={ed} title="Tes hypothèses" />}
+              {boardMode !== 'annot' && <PiecesPanel ed={ed} title="Tes hypothèses" names={level.pieces} />}
               <StatusPanel pieces={ed.pieces} legal={legal} />
               <DebugPanel active={active} pieces={ed.pieces} board={myBoard} probe={null}
                 hint={<> <kbd>__solution()</kbd> révèle la disposition cachée.</>}>

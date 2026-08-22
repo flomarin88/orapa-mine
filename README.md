@@ -42,8 +42,13 @@ sondage près le comportement qu'elles avaient.
 
 - **SOLO** — une disposition est tirée au hasard et cachée. Chaque clic sur un rond du bord
   pose une question ; la sortie et la couleur du rayon s'affichent. Le score est le nombre de
-  questions posées. On reconstitue la disposition avec les 7 pièces, puis « Vérifier » compare
-  les 36 sondages. Une partie gagnée s'archive automatiquement.
+  questions posées. On reconstitue la disposition, puis « Vérifier » compare les 36 sondages.
+  Une partie gagnée s'archive automatiquement.
+  Trois niveaux, chacun ajoutant une pièce au précédent : **Normal** joue les cinq pièces de
+  base, **Avancé** y ajoute le Transparent, **Expert** le Noir par-dessus. Le niveau détermine
+  la disposition tirée et les pièces proposées ; en changer relance une partie. Il n'est stocké
+  nulle part — celui d'une partie archivée se relit dans sa disposition, si bien que les parties
+  enregistrées avant les niveaux s'affichent en Expert sans migration.
   Un sélecteur au-dessus du plateau choisit ce qu'un clic y fait, parmi trois choses.
   **Placer des pièces**, et les questions se posent en cliquant les ronds du bord.
   **Annoter** pour raisonner — griser une case (ou une ligne / colonne entière en cliquant son
