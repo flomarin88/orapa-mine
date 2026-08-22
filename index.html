@@ -485,7 +485,10 @@
     const DEFAULT_ANCHOR = { rouge: [0, 0], jaune: [8, 0], bleu: [0, 5], grandblanc: [5, 5], petitblanc: [4, 3], transparent: [0, 3], noir: [8, 3] };
 
     // ---------- Annotations (mode solo) ----------
-    const ANNOT_COLORS = [['rouge', '#dc2626'], ['jaune', '#eab308'], ['bleu', '#2563eb'], ['blanc', '#eef2f9']];
+    const ANNOT_COLORS = [['rouge', '#dc2626'], ['jaune', '#eab308'], ['bleu', '#2563eb'], ['blanc', '#eef2f9'], ['noir', '#0b1220']];
+    // le noir se confondrait avec le plateau : on lui donne un contour clair, les autres se cernent d'eux-mêmes
+    const ANNOT_STROKE = { '#0b1220': '#94a3b8' };
+    const annotStroke = (c) => ANNOT_STROKE[c] || c;
     // triangle rectangle isocèle : l'angle droit occupe l'un des 4 coins de la case
     const TRI = [
       [[0, 0], [1, 0], [0, 1]],
@@ -839,9 +842,9 @@
             const st = { pointerEvents: 'none' };
             if (a.kind === 'grey') return <rect key={'an' + k} x={px} y={py} width={CELL} height={CELL} fill={GREY} fillOpacity="0.55" style={st} />;
             if (a.kind === 'square') return <rect key={'an' + k} x={px + 4} y={py + 4} width={CELL - 8} height={CELL - 8} rx="3"
-              fill={a.color} fillOpacity="0.55" stroke={a.color} strokeWidth="1.5" strokeDasharray="4 3" style={st} />;
+              fill={a.color} fillOpacity="0.55" stroke={annotStroke(a.color)} strokeWidth="1.5" strokeDasharray="4 3" style={st} />;
             const pts = TRI[a.orient].map(([dx, dy]) => PX(x + dx, y + dy).join(',')).join(' ');
-            return <polygon key={'an' + k} points={pts} fill={a.color} fillOpacity="0.55" stroke={a.color} strokeWidth="1.5"
+            return <polygon key={'an' + k} points={pts} fill={a.color} fillOpacity="0.55" stroke={annotStroke(a.color)} strokeWidth="1.5"
               strokeDasharray="4 3" strokeLinejoin="round" style={st} />;
           })}
 
