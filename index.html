@@ -485,9 +485,12 @@
     const DEFAULT_ANCHOR = { rouge: [0, 0], jaune: [8, 0], bleu: [0, 5], grandblanc: [5, 5], petitblanc: [4, 3], transparent: [0, 3], noir: [8, 3] };
 
     // ---------- Annotations (mode solo) ----------
-    const ANNOT_COLORS = [['rouge', '#dc2626'], ['jaune', '#eab308'], ['bleu', '#2563eb'], ['blanc', '#eef2f9'], ['noir', '#0b1220']];
-    // le noir se confondrait avec le plateau : on lui donne un contour clair, les autres se cernent d'eux-mêmes
-    const ANNOT_STROKE = { '#0b1220': '#94a3b8' };
+    // une couleur par pièce — les deux dernières reprennent le rendu du Noir et du Transparent
+    const ANNOT_COLORS = [['rouge', '#dc2626'], ['jaune', '#eab308'], ['bleu', '#2563eb'], ['blanc', '#eef2f9'],
+      ['noir', '#0b1220'], ['transparent', '#bfdbfe']];
+    // le noir se confondrait avec le plateau, le transparent avec le blanc : contours dédiés.
+    // Les autres se cernent d'elles-mêmes.
+    const ANNOT_STROKE = { '#0b1220': '#94a3b8', '#bfdbfe': '#38bdf8' };
     const annotStroke = (c) => ANNOT_STROKE[c] || c;
     // triangle rectangle isocèle : l'angle droit occupe l'un des 4 coins de la case
     const TRI = [

@@ -46,9 +46,8 @@ sondage près le comportement qu'elles avaient.
   les 36 sondages. Une partie gagnée s'archive automatiquement.
   Un sélecteur au-dessus du plateau choisit ce qu'un clic y pose : des pièces, ou des annotations
   pour raisonner — griser une case (ou une ligne / colonne entière en cliquant son libellé), poser
-  un triangle rectangle isocèle ou un carré, dans l'une des cinq couleurs des pièces — rouge,
-  jaune, bleu, blanc, et noir pour marquer les deux cases du rectangle noir. Les questions se
-  posent dans les deux cas.
+  un triangle rectangle isocèle ou un carré, dans l'une des six couleurs des pièces : rouge,
+  jaune, bleu, blanc, noir et transparent. Les questions se posent dans les deux cas.
 - **DUEL** — la prise de notes face à un adversaire réel. L'app ne connaît aucune disposition :
   c'est l'adversaire qui répond, et on saisit sa réponse en trois clics — le rond de **départ**,
   le rond d'**arrivée** (ou « rayon piégé », ou « rayon absorbé » — qui se note d'un seul clic,
