@@ -44,18 +44,23 @@ sondage près le comportement qu'elles avaient.
   pose une question ; la sortie et la couleur du rayon s'affichent. Le score est le nombre de
   questions posées. On reconstitue la disposition avec les 7 pièces, puis « Vérifier » compare
   les 36 sondages. Une partie gagnée s'archive automatiquement.
-  Un sélecteur au-dessus du plateau choisit ce qu'un clic y pose : des pièces, ou des annotations
-  pour raisonner — griser une case (ou une ligne / colonne entière en cliquant son libellé), poser
-  un triangle rectangle isocèle ou un carré, dans l'une des six couleurs des pièces : rouge,
-  jaune, bleu, blanc, noir et transparent. Les questions se posent dans les deux cas.
+  Un sélecteur au-dessus du plateau choisit ce qu'un clic y fait, parmi trois choses.
+  **Placer des pièces**, et les questions se posent en cliquant les ronds du bord.
+  **Annoter** pour raisonner — griser une case (ou une ligne / colonne entière en cliquant son
+  libellé), poser un triangle rectangle isocèle ou un carré, dans l'une des six couleurs des
+  pièces : rouge, jaune, bleu, blanc, noir et transparent. Les questions se posent aussi dans ce
+  mode. **Sonder l'hypothèse**, enfin : un clic sur un rond du bord tire alors un rayon à travers
+  les pièces posées et non la disposition cachée. Ça ne coûte pas de question, le trajet s'affiche
+  sur le plateau, et si ce départ a déjà sa réponse, l'app dit tout de suite si l'hypothèse la
+  respecte ou la contredit.
 - **DUEL** — la prise de notes face à un adversaire réel. L'app ne connaît aucune disposition :
   c'est l'adversaire qui répond, et on saisit sa réponse en trois clics — le rond de **départ**,
   le rond d'**arrivée** (ou « rayon piégé », ou « rayon absorbé » — qui se note d'un seul clic,
   puisqu'un rayon avalé n'annonce pas de couleur), puis la **couleur** annoncée. Les deux extrémités
-  du rayon prennent cette couleur sur le plateau. Le même plateau accepte les annotations et les
-  pièces qu'en mode solo ; « Comparer aux notes » confronte l'hypothèse posée aux réponses notées
-  et liste celles qui la contredisent. Un duel s'enregistre sous le nom de l'adversaire, puis se
-  sauvegarde tout seul à chaque note.
+  du rayon prennent cette couleur sur le plateau. Le même plateau accepte les annotations, les
+  pièces et le sondage d'hypothèse qu'en mode solo ; « Comparer aux notes » confronte d'un coup
+  l'hypothèse posée à toutes les réponses notées et liste celles qui la contredisent. Un duel
+  s'enregistre sous le nom de l'adversaire, puis se sauvegarde tout seul à chaque note.
 - **VALIDATION** — l'éditeur : placer, déplacer (glisser ou flèches), pivoter (`R`), retourner
   (`F`), tirer un rayon depuis n'importe quel bord, contrôler la légalité du placement, et
   enregistrer le positionnement sous un nom.

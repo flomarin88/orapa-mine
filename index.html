@@ -781,6 +781,7 @@
         <div className="tools" style={{ justifyContent: 'center' }}>
           <button className={'tool' + (mode === 'pieces' ? ' on' : '')} onClick={() => onChange('pieces')}>✋ Placer des pièces</button>
           <button className={'tool' + (mode === 'annot' ? ' on' : '')} onClick={() => onChange('annot')}>✎ Annoter</button>
+          <button className={'tool' + (mode === 'sonde' ? ' on' : '')} onClick={() => onChange('sonde')}>🔦 Sonder l’hypothèse</button>
         </div>
       );
     }
@@ -1159,6 +1160,39 @@
       </tbody></table></div>;
     }
 
+    // ---------- Sonder sa propre hypothèse (solo et duel) ----------
+    // Le rayon traverse les pièces posées, pas la disposition cachée : ça ne coûte aucune question.
+    // Si un départ a déjà sa réponse, on confronte les deux sur-le-champ.
+    function ProbeGuessPanel({ pieces, probe, beam, noted, onClear }) {
+      const dit = (r) => r.sortie + (r.couleur ? ' ' + r.couleur : '');
+      const accord = beam && noted && noted.sortie === exLabel(beam.ex) && noted.couleur === beam.col;
+      return (
+        <div className="panel">
+          <h3>Sonder mon hypothèse</h3>
+          {!pieces.length
+            ? <p className="muted" style={{ margin: 0 }}>Place d’abord des pièces : le rayon traverse ton hypothèse, pas la disposition cherchée.</p>
+            : !beam
+              ? <p className="muted" style={{ margin: 0 }}>Clique un rond du bord. Le rayon traverse ton hypothèse — ça ne compte pas comme une question.</p>
+              : <>
+                <div className="result">
+                  <b>{entLabel(probe.side, probe.line)}</b> →
+                  <b>{exLabel(beam.ex)}</b>
+                  {beam.col && <>
+                    <span className="bigsw" style={{ background: HEX[beam.col] || '#334155' }}></span>
+                    <b style={{ color: '#e9c46a' }}>{beam.col}</b>
+                  </>}
+                </div>
+                {noted && <div className={'status ' + (accord ? 'ok' : 'bad')} style={{ marginTop: 8 }}>
+                  {accord ? `D’accord avec ta réponse : ${dit(noted)}.` : `Contredit ta réponse : tu avais ${dit(noted)}.`}
+                </div>}
+                <div className="row" style={{ marginTop: 8 }}>
+                  <button onClick={onClear}>✕ Effacer le rayon</button>
+                </div>
+              </>}
+        </div>
+      );
+    }
+
     // ---------- Mode VALIDATION (éditeur + sondage) ----------
     function Validation({ active, bridge }) {
       const ed = useEditor(active);
@@ -1233,12 +1267,15 @@
       const [verdict, setVerdict] = useState(null);
       const [saved, setSaved] = useState(null);
       const an = useAnnots();
-      const [boardMode, setBoardMode] = useState('pieces');   // pièces ou annotations, jamais les deux
+      const [boardMode, setBoardMode] = useState('pieces');   // poser des pièces, annoter, ou sonder — une seule à la fois
+      const [probe, setProbe] = useState(null);               // sondage d'essai, tiré dans l'hypothèse
 
       const solBoard = buildBoard(solution);
+      const myBoard = buildBoard(ed.pieces);
+      const beam = probe ? fire2(myBoard, probe.side, probe.line) : null;
       const legal = legalCheck(ed.pieces);
 
-      const start = (layout) => { setSolution(layout); setAsked([]); setRevealed(false); setVerdict(null); setSaved(null); an.setAnnots({}); ed.clear(); };
+      const start = (layout) => { setSolution(layout); setAsked([]); setRevealed(false); setVerdict(null); setSaved(null); an.setAnnots({}); ed.clear(); setProbe(null); };
       const newGame = () => start(randomLayout());
 
       useEffect(() => { if (active) window.__solution = () => snapshotJSON(solution); }, [active, solution]);
@@ -1254,7 +1291,7 @@
         };
       });
 
-      const toBoardMode = (m) => { setBoardMode(m); ed.setSel(null); };
+      const toBoardMode = (m) => { setBoardMode(m); ed.setSel(null); if (m !== 'sonde') setProbe(null); };
       const activeTool = boardMode === 'annot' ? an.tool : 'none';
 
       const saveGame = (won) => {
@@ -1298,11 +1335,11 @@
           <div className="layout">
             <div className="boardwrap">
               <BoardModeTabs mode={boardMode} onChange={toBoardMode} />
-              <BoardView pieces={ed.pieces} sel={ed.sel} beam={null} probe={null} ghost={revealed ? solution : null}
+              <BoardView pieces={ed.pieces} sel={ed.sel} beam={beam} probe={probe} ghost={revealed ? solution : null}
                 markerFill={(s, l) => fills[s + ',' + l]}
                 onSelect={ed.setSel}
                 onMovePiece={(i, anchor) => ed.update(i, { anchor })}
-                onMarker={ask}
+                onMarker={boardMode === 'sonde' ? (side, line) => setProbe({ side, line }) : ask}
                 annots={an.annots} tool={activeTool} onCell={an.onCell} onLine={an.onLine} />
             </div>
 
@@ -1332,10 +1369,13 @@
               </div>
 
               {boardMode === 'annot' && <AnnotPanel an={an} active={active} />}
+              {boardMode === 'sonde' && <ProbeGuessPanel pieces={ed.pieces} probe={probe} beam={beam}
+                noted={probe && asked.find(q => q.side === probe.side && q.line === probe.line)}
+                onClear={() => setProbe(null)} />}
 
-              {boardMode === 'pieces' && <PiecesPanel ed={ed} title="Tes hypothèses" />}
+              {boardMode !== 'annot' && <PiecesPanel ed={ed} title="Tes hypothèses" />}
               <StatusPanel pieces={ed.pieces} legal={legal} />
-              <DebugPanel active={active} pieces={ed.pieces} board={buildBoard(ed.pieces)} probe={null}
+              <DebugPanel active={active} pieces={ed.pieces} board={myBoard} probe={null}
                 hint={<> <kbd>__solution()</kbd> révèle la disposition cachée.</>}>
                 <button onClick={() => console.log('[orapa] solution', JSON.stringify(snapshotJSON(solution), null, 2))}>🕵 Logger la solution</button>
               </DebugPanel>
@@ -1354,13 +1394,16 @@
       const [asked, setAsked] = useState([]);
       const [draft, setDraft] = useState(null);     // {side, line, ex?} — la question en cours de saisie
       const [boardMode, setBoardMode] = useState('pieces');
+      const [probe, setProbe] = useState(null);     // sondage d'essai, tiré dans l'hypothèse
       const [name, setName] = useState('');
       const [saved, setSaved] = useState(null);     // {id, at} | {pending} | {error}
       const [conflict, setConflict] = useState(null);
       const lastSaved = useRef(null);
 
       const legal = legalCheck(ed.pieces);
-      const toBoardMode = (m) => { setBoardMode(m); ed.setSel(null); };
+      const myBoard = buildBoard(ed.pieces);
+      const beam = probe ? fire2(myBoard, probe.side, probe.line) : null;
+      const toBoardMode = (m) => { setBoardMode(m); ed.setSel(null); if (m !== 'sonde') setProbe(null); };
       const activeTool = boardMode === 'annot' ? an.tool : 'none';
 
       // --- saisie d'une question : départ → arrivée → couleur ---
@@ -1451,7 +1494,9 @@
 
       const step = !draft ? 'depart' : !draft.ex ? 'arrivee' : 'couleur';
       const stepText = {
-        depart: 'Clique le rond d’où part le rayon.',
+        depart: boardMode === 'sonde'
+          ? 'Le plateau sert à sonder ton hypothèse — repasse en « Placer des pièces » ou « Annoter » pour noter un rayon.'
+          : 'Clique le rond d’où part le rayon.',
         arrivee: 'Clique le rond par lequel il ressort — ou dis qu’il est piégé ou absorbé.',
         couleur: 'Choisis la couleur annoncée par ton adversaire.',
       }[step];
@@ -1464,11 +1509,11 @@
           <div className="layout">
             <div className="boardwrap">
               <BoardModeTabs mode={boardMode} onChange={toBoardMode} />
-              <BoardView pieces={ed.pieces} sel={ed.sel} beam={null} probe={null} ghost={null}
+              <BoardView pieces={ed.pieces} sel={ed.sel} beam={beam} probe={probe} ghost={null}
                 markerFill={(s, l) => fills[s + ',' + l]}
                 onSelect={ed.setSel}
                 onMovePiece={(i, anchor) => ed.update(i, { anchor })}
-                onMarker={onMarker}
+                onMarker={boardMode === 'sonde' ? (side, line) => setProbe({ side, line }) : onMarker}
                 annots={an.annots} tool={activeTool} onCell={an.onCell} onLine={an.onLine} />
             </div>
 
@@ -1527,6 +1572,9 @@
                 </tbody></table></div>}
               </div>
 
+              {boardMode === 'sonde' && <ProbeGuessPanel pieces={ed.pieces} probe={probe} beam={beam}
+                noted={probe && asked.find(q => q.side === probe.side && q.line === probe.line)}
+                onClear={() => setProbe(null)} />}
               {boardMode === 'annot' ? <AnnotPanel an={an} active={active} /> : <PiecesPanel ed={ed} title="Ton hypothèse" />}
 
               <div className="panel">
